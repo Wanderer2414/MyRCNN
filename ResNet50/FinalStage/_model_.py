@@ -6,7 +6,8 @@ class Model(Module):
         super().__init__()
         self.linear = Linear(in_features=channels, out_features=num_classes)
     def forward(self, x: Tensor) -> Tensor:
-        x = x.mean(dim=(1,2))
+        print(x.shape)
+        x = x.mean(dim=(-2,-1))
         x = softmax(input=self.linear(x), dim=1)
         return x
         

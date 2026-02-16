@@ -7,10 +7,10 @@ class FirstBottleNeckBlock(Module):
         median_channels = in_channels//2
         self.net = Sequential(
             Conv2d(in_channels=in_channels, out_channels=median_channels, stride=2, kernel_size=1),
-            Conv2d(in_channels=median_channels, out_channels=median_channels, stride=1, kernel_size=3),
+            Conv2d(in_channels=median_channels, out_channels=median_channels, stride=1, kernel_size=3, padding=1),
             Conv2d(in_channels=median_channels, out_channels=out_channels, stride=1, kernel_size=1),
         )
-        self.res = Conv2d(in_channels=in_channels, out_channels=out_channels, stride=1, kernel_size=1)
+        self.res = Conv2d(in_channels=in_channels, out_channels=out_channels, stride=2, kernel_size=1)
     def forward(self, x: Tensor) -> Tensor:
         return self.net(x) + self.res(x)
     
@@ -20,7 +20,7 @@ class BottleNeckBlock(Module):
         median_channels = channels//2
         self.net = Sequential(
             Conv2d(in_channels=channels, out_channels=median_channels, stride=1, kernel_size=1),
-            Conv2d(in_channels=median_channels, out_channels=median_channels, stride=1, kernel_size=3),
+            Conv2d(in_channels=median_channels, out_channels=median_channels, stride=1, kernel_size=3, padding=1),
             Conv2d(in_channels=median_channels, out_channels=channels, stride=1, kernel_size=1),
         )
     def forward(self, x: Tensor) -> Tensor:

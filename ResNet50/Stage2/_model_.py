@@ -6,7 +6,7 @@ class FirstBottleneckBlock(Module):
         super().__init__()
         self.net = Sequential(
             Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=1),
-            Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3),
+            Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1),
             Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
         )
         self.res = Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
@@ -18,7 +18,7 @@ class BottleneckBlock(Module):
         super().__init__()
         self.net = Sequential(
             Conv2d(in_channels=channels, out_channels=median_channels, kernel_size=1),
-            Conv2d(in_channels=median_channels, out_channels=median_channels, kernel_size=3),
+            Conv2d(in_channels=median_channels, out_channels=median_channels, kernel_size=3, padding=1),
             Conv2d(in_channels=median_channels, out_channels=channels, kernel_size=1),
         )
     def forward(self, x: Tensor) -> Tensor:
@@ -32,4 +32,5 @@ class Model(Module):
             BottleneckBlock(channels=out_channels, median_channels=out_channels),
         )
     def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
+        x= self.net(x)
+        return x
