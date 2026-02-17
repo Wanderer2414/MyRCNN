@@ -6,15 +6,15 @@ class Dataset:
         return 0
     def getTestSize(self) -> int:
         return 0
-    def getTrainImage(self, index: int) -> Tensor:
+    def getTrainTensor(self, index: int) -> Tensor:
         return tensor([[]])
-    def getTestImage(self, index: int) -> Tensor:
+    def getTestTensor(self, index: int) -> Tensor:
         return tensor([[]])
     def getClassSize(self) -> int:
         return 0
     def getClass(self, index: int) -> str:
         return ""
-    def getImgTrainInfo(self, index: int)-> Tensor:
+    def getTrainLabel(self, index: int)-> Tensor:
         return tensor([])
-    def getImgTestInfo(self, index: int) -> Tensor:
+    def getTestLabel(self, index: int) -> Tensor:
         return tensor([])

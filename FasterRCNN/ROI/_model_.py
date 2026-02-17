@@ -8,9 +8,8 @@ class Model(Module):
         self.linear = Linear(in_features=channels, out_features=num_class, device=device)
     def forward(self, x: Tensor, score: Tensor) -> Tensor:
         boxes = score[:, :, 2:6]
-        boxes[:, :, 2:4] += boxes[:, :, 0:2]
-        boxes[:, :, 0:2] = floor(boxes[:, :, 0:2])
-        boxes[:, :, 2:4] = ceil(boxes[:, :, 2:4])
+        # boxes[:, :, 0:2] = floor(boxes[:, :, 0:2])
+        # boxes[:, :, 2:4] = ceil(boxes[:, :, 2:4])
     
 
         B, C, H, W = x.shape

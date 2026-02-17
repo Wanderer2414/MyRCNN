@@ -1,11 +1,6 @@
 from torch.nn import Module, Sequential
 from torch import Tensor
-from . import Stage1
-from . import Stage2
-from . import Stage3
-from . import Stage3 as Stage4
-from . import Stage3 as Stage5
-from . import FinalStage
+from . import Stage1, Stage2, Stage3, Stage3 as Stage4, Stage3 as Stage5, FinalStage
 
 class ResNet(Module):
     def __init__(self):

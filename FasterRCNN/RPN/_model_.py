@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d
-from torch import Tensor, arange, clamp
+from torch import Tensor, arange, clamp, cat, topk, zeros_like
 from . import ClassificationHead, RegressionHead
 
 class Model(Module):
@@ -10,16 +10,23 @@ class Model(Module):
         self.cls = ClassificationHead.ClassificationHead(median, device)
         self.reg = RegressionHead.RegressionHead(median, device)
         self.device = device
-    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, x: Tensor) -> Tensor:
         x = self.prepare(x)
         cls = self.cls(x)
         reg = self.reg(x)
         i = arange(reg.shape[1], device=self.device).view(1, reg.shape[1], 1, 1)
         j = arange(reg.shape[2], device=self.device).view(1, 1, reg.shape[2], 1)
-        print(reg.shape)
-        print(i.shape)
-        print(j.shape)
-        reg[:, :, :, :, 0] += i
-        reg[:, :, :, :, 1] += j
+        offset = zeros_like(reg)
+        offset[:, :, :, :, 0] = i
+        offset[:, :, :, :, 1] = j
+        offset[:, :, :, :, 2] = reg[:, :, :, :, 0] + i
+        offset[:, :, :, :, 3] = reg[:, :, :, :, 1] + j
+        reg = reg + offset
         reg = clamp(reg, min = 0, max = x.shape[2])
-        return cls, reg
+        score = cat([cls, reg], dim=-1)
+        B = score.shape[0]
+        score = score.view(-1, 6)
+        indices = score[:, 0].view(-1)
+        indices = topk(indices, 3000)[1]
+        score = score[indices].view(B, -1, 6)
+        return score
