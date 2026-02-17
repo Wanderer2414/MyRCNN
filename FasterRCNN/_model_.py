@@ -130,7 +130,7 @@ class FasterRCNN(Module):
 class Model(CModel):
     def __init__(self, device: device):
         self.model = FasterRCNN(device)
-        self.opt = Adam(self.model.parameters(), lr=0.01)
+        self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.device = device
     def train(self, x: Dataset, loss: Callable[[Tensor, Tensor], Tensor]):
         size = x.getTrainSize()
