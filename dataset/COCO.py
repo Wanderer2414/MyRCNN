@@ -1,14 +1,14 @@
 from torch import Tensor, from_numpy, tensor, cat
 from ._dataset_ import Dataset
-from pycocotools.coco import COCO
+from pycocotools.coco import COCO as _COCO
 from cv2 import imread
 from ._funcs_ import ImgRead
 class Coco(Dataset):
     def __init__(self, path:str):
         self.trainDir = path+"/train2017/"
         self.testDir = path+"/test2017/"
-        self.train = COCO(path+"/annotations/instances_train2017.json")
-        self.test = COCO(path+"/annotations/image_info_test2017.json")
+        self.train = _COCO(path+"/annotations/instances_train2017.json")
+        self.test = _COCO(path+"/annotations/image_info_test2017.json")
         self.class_id = self.train.getCatIds()
     def getTrainSize(self) -> int:
         return len(self.train.getImgIds())
@@ -30,7 +30,10 @@ class Coco(Dataset):
         return x
     def getTrainLabel(self, index:int) -> Tensor:
         id = self.train.getImgIds()[index]
-        ann_id = self.train.getAnnIds(imgIds=id)[0]
+        ann_ids = self.train.getAnnIds(imgIds=id)
+        if (len(ann_ids)==0):
+          return tensor([])
+        ann_id = ann_ids[0]
         anns = self.train.loadAnns(ann_id)
         bbox = tensor([ann["bbox"] for ann in anns]).view(-1, 4)
         bbox[:, 2:4] += bbox[:, 0:2]

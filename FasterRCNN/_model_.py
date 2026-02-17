@@ -21,7 +21,6 @@ def faster_rcnn_loss(pred: Tensor, gt: Tensor, iou_thresh=0.5) -> Tensor:
     total_box_loss = 0
     total_cls_loss = 0
     num_batches = 0
-    
     for b in range(B):
         pred_boxes = box_pred[b]
         gt_boxes = gt[b][:, :4]
@@ -95,19 +94,19 @@ def faster_rcnn_loss(pred: Tensor, gt: Tensor, iou_thresh=0.5) -> Tensor:
     return total_loss
 
 class FasterRCNN(Module):
-    def __init__(self, device):
+    def __init__(self, device: device):
         super().__init__()
         self.feature_extraction = Sequential(
-            ResNet50.Stage1.InitialLayer(in_channels=3, out_channels=64),
-            ResNet50.Stage2.Model(in_channels=64, out_channels=256),
-            ResNet50.Stage3.Model(in_channels=256, out_channels=512, num_layer=4),
-            ResNet50.Stage4.Model(in_channels=512, out_channels=1024, num_layer=6),
+            ResNet50.Stage1.InitialLayer(in_channels=3, out_channels=64, device=device),
+            ResNet50.Stage2.Model(in_channels=64, out_channels=256, device=device),
+            ResNet50.Stage3.Model(in_channels=256, out_channels=512, num_layer=4, device=device),
+            ResNet50.Stage4.Model(in_channels=512, out_channels=1024, num_layer=6, device=device),
         )
         self.rpn = RPN.Model(channels=1024, device=device)
         self.roi = ROI.Model(channels=1024, num_class=100, device= device)
 
     def fast_nms(self, preds: Tensor, iou_threshold=0.5, score_threshold=0.5) -> Tensor:
-        out: Tensor = tensor([])
+        out: Tensor = tensor([], device=preds.device)
         for b in preds:
             scores = b[:, 0]
             boxes = b[:, 2:6]
@@ -123,7 +122,7 @@ class FasterRCNN(Module):
     def forward(self, x: Tensor):
         x = self.feature_extraction(x)
         score = self.rpn(x)
-        score = self.fast_nms(score)
+        # score = self.fast_nms(score)
         score[2:6] *= 48
         pred = self.roi(x, score)
         return cat([score, pred],dim=-1)
@@ -132,14 +131,17 @@ class Model(CModel):
     def __init__(self, device: device):
         self.model = FasterRCNN(device)
         self.opt = Adam(self.model.parameters(), lr=0.01)
+        self.device = device
     def train(self, x: Dataset, loss: Callable[[Tensor, Tensor], Tensor]):
         size = x.getTrainSize()
         start = time()
-        size = 8
         for i in range(size):
-            tens = x.getTrainTensor(i)
+            tens:Tensor = x.getTrainTensor(i).to(self.device)
+            label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
+            if (label.shape[1] == 0):
+              continue
             out = self.model(tens)
-            lss = loss(out, x.getTrainLabel(i).unsqueeze(0))
+            lss = loss(out,label)
             self.opt.zero_grad()
             lss.backward()
             self.opt.step()
