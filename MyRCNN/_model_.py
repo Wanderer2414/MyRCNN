@@ -1,5 +1,10 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear
-from torch import Tensor, device
+from torch import Tensor, device, save, tensor, softmax, arange, stack, log, ones_like, where, zeros_like, zeros
+from torch.optim import Adam
+from dataset import Dataset
+from typing import Callable
+from time import time
+from display import show_progress_counter
 from . import ColorHead, MaskHead, FeatureHead, Classfication
 class MyRCNN(Module):
     def __init__(self, channels: int, device: device = device("cpu"))->None:
@@ -35,3 +40,55 @@ class MyRCNN(Module):
         combine = combine.permute(0, 3, 1, 2)
         scores: list[Tensor] = self.cls(combine)
         return scores
+    
+
+def MyLoss(scores: list[Tensor], label: Tensor) -> Tensor:
+    print(label.shape)
+    x, y, w, h, cls = label[0][0].detach().numpy()
+    cls = int(cls)
+    area = 25/w/h
+    mask = zeros(100, device=label.device)
+    mask[cls] = 1
+    bkmask = zeros(100, device=label.device)
+    bkmask[0] = 1
+    out: Tensor = tensor([0], device=label.device)
+    for mat in scores:
+        B, H, W = mat.shape[0:3]
+        if (area>1):
+            bias = 1/area
+        rol = arange(H).view(1, H, 1).expand(1, H, W)
+        col = arange(W).view(1, 1, W).expand(1, H, W)
+        indices = (rol>y) & (rol < y+h) & (col > x) & col < (x + h)
+        score = where(indices, 
+                      where(mask, -log(mat[indices]), -log(ones_like(mat[indices]-mat[indices]))).sum(), 
+                      where(bkmask, -log(mat[indices]), -log(ones_like(mat[indices]-mat[indices]))).sum()
+                      ).sum()
+        out = out + score
+        x /= 5
+        y /= 5
+        w /= 5
+        h /= 5
+        area *= 5
+    return out
+
+class Model:
+    def __init__(self, device: device = device("cpu")):
+        self.model = MyRCNN(channels=3, device=device)
+        self.opt = Adam(self.model.parameters(), lr=1e-4)
+        self.device = device
+    def train(self, x: Dataset, loss: Callable[[list[Tensor], Tensor], Tensor]):
+        size = x.getTrainSize()
+        start = time()
+        for i in range(size):
+            tens:Tensor = x.getTrainTensor(i).to(self.device)
+            label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
+            if (label.shape[1] == 0):
+              continue
+            out: list[Tensor] = self.model(tens)
+            lss = loss(out,label)
+            self.opt.zero_grad()
+            lss.backward()
+            self.opt.step()
+            show_progress_counter(i+1, size, start, f"Loss: {lss}")
+        show_progress_counter(size, size, start, "Done")
+        save(self.model.state_dict(), "model.pth")

@@ -1,5 +1,5 @@
-from torch.nn import Module, Conv2d, Sigmoid, Sequential, Linear
-from torch import Tensor,device, tensor
+from torch.nn import Module, Conv2d, Sequential, Linear, Softmax
+from torch import Tensor,device
 
 class Classification(Module):
     def __init__(self, channels: int, num_classes: int, device: device = device("cpu")):
@@ -8,7 +8,7 @@ class Classification(Module):
         self.cls1 = Conv2d(in_channels=channels, out_channels=channels, kernel_size=5, stride=5, padding=2, device=device)
         self.cls2 = Sequential(
             Linear(in_features=channels, out_features=num_classes, device=device),
-            Sigmoid()
+            Softmax(dim=-1)
         )
         
     def forward(self, x: Tensor) -> list[Tensor]:
