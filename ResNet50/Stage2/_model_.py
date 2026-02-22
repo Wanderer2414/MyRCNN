@@ -24,7 +24,7 @@ class BottleneckBlock(Module):
     def forward(self, x: Tensor) -> Tensor:
         return self.net(x) + x
 class Model(Module):
-    def __init__(self, in_channels, out_channels: int, device: device) -> None:
+    def __init__(self, in_channels: int, out_channels: int, device: device) -> None:
         super().__init__()
         self.net = Sequential(
             FirstBottleneckBlock(in_channels=in_channels, out_channels=out_channels, device=device),
