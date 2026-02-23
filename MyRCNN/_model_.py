@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear
-from torch import Tensor, device, save, tensor, softmax, arange, stack, log, ones_like, where, zeros_like, zeros
+from torch import Tensor, device, save, tensor, softmax, arange, stack, log, ones_like, where, zeros_like, zeros, bool
 from torch.optim import Adam
 from dataset import Dataset
 from typing import Callable
@@ -33,7 +33,8 @@ class MyRCNN(Module):
         feature: Tensor = self.feat(mask, color, x)
         color = color.expand(-1, 64, -1, -1).contiguous()
         combine: Tensor = feature + self.colorWeight(color)
-        combine[:] = combine[:]/combine[:].max()
+        M: Tensor = combine[:].max()
+        combine = combine / M
         combine = self.ft(combine)
         combine = combine.permute(0, 2, 3, 1)
         combine = self.mix(combine)
@@ -43,32 +44,22 @@ class MyRCNN(Module):
     
 
 def MyLoss(scores: list[Tensor], label: Tensor) -> Tensor:
-    print(label.shape)
     x, y, w, h, cls = label[0][0].detach().numpy()
     cls = int(cls)
-    area = 25/w/h
-    mask = zeros(100, device=label.device)
+    mask = zeros(100, device=label.device, dtype=bool)
     mask[cls] = 1
-    bkmask = zeros(100, device=label.device)
-    bkmask[0] = 1
     out: Tensor = tensor([0], device=label.device)
     for mat in scores:
         B, H, W = mat.shape[0:3]
-        if (area>1):
-            bias = 1/area
         rol = arange(H).view(1, H, 1).expand(1, H, W)
         col = arange(W).view(1, 1, W).expand(1, H, W)
         indices = (rol>y) & (rol < y+h) & (col > x) & col < (x + h)
-        score = where(indices, 
-                      where(mask, -log(mat[indices]), -log(ones_like(mat[indices]-mat[indices]))).sum(), 
-                      where(bkmask, -log(mat[indices]), -log(ones_like(mat[indices]-mat[indices]))).sum()
-                      ).sum()
+        score = where(mask, -log(mat[indices]), -log(ones_like(mat[indices])-mat[indices])).sum()
         out = out + score
         x /= 5
         y /= 5
         w /= 5
         h /= 5
-        area *= 5
     return out
 
 class Model:

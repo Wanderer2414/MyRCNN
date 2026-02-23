@@ -17,6 +17,7 @@ class ColorHead(Module):
         )
     def forward(self, mask: Tensor, x:Tensor) -> Tensor:
         x = self.net1(x) + mask
-        x[:] = x[:]/x[:].max()
+        M: Tensor = x[:].max()
+        x = x/M
         x = self.net2(x)
         return x
