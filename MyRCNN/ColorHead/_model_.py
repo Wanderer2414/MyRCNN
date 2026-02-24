@@ -1,23 +1,18 @@
-from torch.nn import Module, Conv2d, ReLU, Sequential
+from torch.nn import Module, Conv2d, ReLU, Sequential, AvgPool2d
 from torch import Tensor, device
 
 class ColorHead(Module):
-    def __init__(self, channels: int = 3, device: device = device("cpu")) -> None:
+    def __init__(self, device: device = device("cpu")) -> None:
         super().__init__()
-        self.net1 = Sequential(
-            Conv2d(in_channels=channels, out_channels=1, kernel_size=1, stride=1, device=device),
-            Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1, device=device),
+        self.net = Sequential(
+            AvgPool2d(kernel_size=5, stride=1, padding=2),
+            Conv2d(in_channels=3, out_channels=64, kernel_size=1, device=device),
+            AvgPool2d(kernel_size=5, stride=1, padding=2),
             ReLU(),
-            Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1, device=device)
+            Conv2d(in_channels=64, out_channels=1, kernel_size=1, device=device),
+            AvgPool2d(kernel_size=5, stride=1, padding=2),
         )
-        self.net2 = Sequential(
-            Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1, device=device),
-            ReLU(),
-            Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1, device=device)
-        )
-    def forward(self, mask: Tensor, x:Tensor) -> Tensor:
-        x = self.net1(x) + mask
-        M: Tensor = x[:].max()
-        x = x/M
-        x = self.net2(x)
+    def forward(self, x:Tensor) -> Tensor:
+        x = self.net(x)
+        x = x/x.max()
         return x
