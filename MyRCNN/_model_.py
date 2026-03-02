@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
-from torch import Tensor, device, save, tensor, softmax, arange, stack, log, ones_like, where, zeros_like, zeros, bool as tbool, exp, long as tlong, cat
+from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
-from torchvision.ops import generalized_box_iou
+from torchvision.ops import complete_box_iou_loss
 from torch.optim import Adam
 from dataset import Dataset
 from typing import Callable
@@ -30,31 +30,33 @@ def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
     X2 = X2.ceil().long()
     Y1 = Y1.floor().long()
     Y2 = Y2.ceil().long()
-    center = tensor([X1+X2, Y1+Y2], device=label.device).view(2, 1, 1, 1, 1).expand(2, 1,1,H,W)
-    row = arange(H, device=label.device).view(1,1,H,1).expand(1,1,H,W)
-    col = arange(W, device=label.device).view(1,1,1,W).expand(1,1,H,W)
+    center = tensor([(X1+X2)/2, (Y1+Y2)/2], device=label.device).view(2, 1, 1, 1, 1).expand(2, 1,1,H,W)
+    row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,1,H,W)
+    col = arange(W, device=label.device, dtype=tfloat).view(1,1,1,W).expand(1,1,H,W)
     distance = ((row-center[1]).square() + (col-center[0]).square()).sqrt()
-    indices = ((row >= Y1) & (row <= Y2)) & ((col >= X1) & (col <= X2))
     score = distance.clone()
     score = (1-score/score.max())
     region_pred = scores[:, 0, Y1:Y2, X1:X2]
     target = score[:, 0, Y1:Y2, X1:X2]
     score = binary_cross_entropy_with_logits(region_pred, target)
     target = label[0:4].view(-1, 4)
-    position = cat([col, row, col, row], dim=1)
     w = scores[:, 1, :, :].unsqueeze(1)
     h = scores[:, 2, :, :].unsqueeze(1)
-    position[:, 0] = position[:, 0] - w
-    position[:, 1] = position[:, 1] - h
-    position[:, 2] = position[:, 2] + w
-    position[:, 3] = position[:, 3] + h
-    position = position[:, :, Y1:Y2, X1:X2]
+    x1 = col.clone() - w
+    y1 = col.clone() - h
+    x2 = col.clone() + w
+    y2 = col.clone() + h
+    position = cat([x1, y1, x2, y2], dim=-1)
+    w = w[:, :, Y1:Y2, X1:X2]
+    h = h[:, :, Y1:Y2, X1:X2]
     position = position.reshape(-1, 4)
-    score = score + generalized_box_iou(position, target)
+    target = target.expand(position.shape)
+    iou_score = complete_box_iou_loss(position, target)
+    score = score + iou_score.mean()
     cls_target = zeros(B, H, W, device=label.device, dtype=tlong)
     cls_target[:, Y1:Y2, X1:X2] = label[-1].long()
     cls = scores[:, 3:, :, :]
-    score = cross_entropy(cls, cls_target)
+    score = score + cross_entropy(cls, cls_target)    
     return score
 
 class Model:
@@ -65,9 +67,10 @@ class Model:
     def train(self, x: Dataset, loss: Callable[[Tensor, Tensor], Tensor]):
         size = x.getTrainSize()
         start = time()
-        for epoach in range(100):
+        for epoach in range(10):
             sloss = 0
-            for i in range(10):
+            i = 0
+            for j in range(10):
                 tens:Tensor = x.getTrainTensor(i).to(self.device)
                 label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
                 if (label.shape[1] == 0):

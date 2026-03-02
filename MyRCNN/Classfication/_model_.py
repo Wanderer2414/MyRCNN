@@ -7,7 +7,7 @@ class Classification(Module):
         self.score = Sequential(
             Conv2d(in_channels=2*channels, out_channels=4*channels, kernel_size=3, stride=1, padding=1, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=4*channels, out_channels=1, kernel_size=1, stride=1, device=device)
+            Conv2d(in_channels=4*channels, out_channels=1, kernel_size=1, stride=1, device=device),
         )
         self.size = Sequential(
             Conv2d(in_channels=2*channels, out_channels=4*channels, kernel_size=1, stride=1, device=device),
@@ -23,5 +23,6 @@ class Classification(Module):
         x = cat([color, feature], dim=1)
         score: Tensor = self.score(x)
         size: Tensor = self.size(x)
+        size = (size.exp()+1).exp()
         cls: Tensor = self.cls(x)
         return cat([score, size, cls], dim=1)
