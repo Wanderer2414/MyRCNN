@@ -1,19 +1,27 @@
-from torch.nn import Module, Conv2d, Linear
-from torch import Tensor,device
-
+from torch.nn import Module, Conv2d, Sequential, LeakyReLU
+from torch import Tensor,device, cat
+        
 class Classification(Module):
     def __init__(self, channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
-        self.downward = Conv2d(in_channels=channels, out_channels=channels, kernel_size=5, stride=5, padding=2, device=device)
-        self.cls1 = Conv2d(in_channels=channels, out_channels=channels, kernel_size=5, stride=5, padding=2, device=device)
-        self.cls2 = Linear(in_features=channels, out_features=num_classes, device=device)
-        
-    def forward(self, x: Tensor) -> list[Tensor]:
-        out: list[Tensor] = []
-        while (min(x.shape[-2], x.shape[-1])>5):
-            score: Tensor = self.cls1(x)
-            score = score.permute(0, 2, 3, 1)
-            score = self.cls2(score)
-            out.append(score)
-            x = self.downward(x)
-        return out
+        self.score = Sequential(
+            Conv2d(in_channels=2*channels, out_channels=4*channels, kernel_size=3, stride=1, padding=1, device=device),
+            LeakyReLU(),
+            Conv2d(in_channels=4*channels, out_channels=1, kernel_size=1, stride=1, device=device)
+        )
+        self.size = Sequential(
+            Conv2d(in_channels=2*channels, out_channels=4*channels, kernel_size=1, stride=1, device=device),
+            LeakyReLU(),
+            Conv2d(in_channels=4*channels, out_channels=2, kernel_size=1, stride=1, device=device)
+        )
+        self.cls = Sequential(
+            Conv2d(in_channels=2*channels, out_channels=num_classes*2, kernel_size=1, stride=1, device=device),
+            LeakyReLU(),
+            Conv2d(in_channels=num_classes*2, out_channels=num_classes, kernel_size=1, stride=1, device=device)
+        )
+    def forward(self, color: Tensor, feature: Tensor) -> Tensor:
+        x = cat([color, feature], dim=1)
+        score: Tensor = self.score(x)
+        size: Tensor = self.size(x)
+        cls: Tensor = self.cls(x)
+        return cat([score, size, cls], dim=1)
