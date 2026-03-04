@@ -1,10 +1,22 @@
 from torch.nn import Module, Conv2d, ReLU, Sequential, AvgPool2d
-from torch import Tensor, device
-from torch.nn.functional import max_pool2d
+from torch import Tensor, device, tensor, float32 as tfloat
+from torch.nn.functional import max_pool2d, conv2d
 
 class MaskHead(Module):
     def __init__(self, channels: int = 3, device: device = device("cpu")) -> None:
         super().__init__()
+        self.Gx = tensor(
+            [[-1, 0, 1],
+             [-2, 0, 2],
+             [-1, 0, 1]], dtype=tfloat, device=device
+        ).view(1, 1, 3, 3).expand(channels, 1, 3, 3)
+
+        self.Gy = tensor(
+            [[-1, -2, -1],
+             [ 0,  0,  0],
+             [ 1,  2,  1]], dtype=tfloat, device=device
+        ).view(1, 1, 3, 3).expand(channels, 1, 3, 3)
+
         self.net = Sequential(
             Conv2d(in_channels=channels, out_channels=6*channels, kernel_size=1, device=device),
             ReLU(),
@@ -12,13 +24,9 @@ class MaskHead(Module):
         )
         self.avg = AvgPool2d(3, 1, 1)
     def forward(self, x:Tensor) -> Tensor:
-        # x = self.net(x)
-        sq: Tensor = x.square()
-        sum = self.avg(x)*9
-        sum2 = self.avg(sq)*9
-        sep:Tensor = 9*sq + sum2 - 2*x*sum
-        sep = sep.sum(dim=1, keepdim=True)
-        sep = max_pool2d(sep, 3, 1, 1)
-        sep = 1-sep/sep.max()
-        # sep = where(sep>0.5, ones_like(sep), zeros_like(sep))
-        return sep
+        Gx = conv2d(x, self.Gx, padding=1, stride=1, groups=3)
+        Gy = conv2d(x, self.Gy, padding=1, stride=1, groups=3)
+        x = (Gx * Gx + Gy * Gy).sqrt()
+        x = x.sum(dim=1, keepdim=True)
+        x = max_pool2d(x, 3, 1, 1)
+        return x
