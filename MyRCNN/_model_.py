@@ -41,7 +41,12 @@ def MyBBLoss(scores: Tensor, label: Tensor) -> Tensor:
     distance = ((row-center[1]).square() + (col-center[0]).square()).sqrt()
     target = distance[:, :, Y1:Y2, X1:X2]
     target = 1-target/target.max()
-    return binary_cross_entropy_with_logits(pred_box, target)
+    h, w = target.shape[2:4]
+    h //= 2
+    w //= 2
+    # print(f"Target: {target[0, 0, h, w]}, Logits: {pred_box[0, 0, h, w]} ({h}, {w}, {target.shape}")
+    score =  binary_cross_entropy_with_logits(pred_box, target)
+    return score
 def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
     # Score, width, height, class x 100
     label = label.squeeze().squeeze()
@@ -88,7 +93,7 @@ class Model:
     def train(self, x: Dataset, loss: Callable[[Tensor, Tensor], Tensor]):
         size = x.getTrainSize()
         start = time()
-        for epoch in range(10):
+        for epoch in range(100):
             sloss = 0
             i = 0
             for j in range(10):
