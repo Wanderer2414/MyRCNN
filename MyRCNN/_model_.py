@@ -28,14 +28,14 @@ def MyBBLoss(scores: Tensor, label: Tensor) -> Tensor:
     Y2 = Y2.ceil().long()
     B, C, H, W = scores.shape
     score = scores[:, 0:1, :, :]
-    w = scores[:, 1:2, :, :]
-    h = scores[:, 2:3, :, :]
+    # w = scores[:, 1:2, :, :]
+    # h = scores[:, 2:3, :, :]
     row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,1,H,W)
     col = arange(W, device=label.device, dtype=tfloat).view(1,1,1,W).expand(1,1,H,W)
-    x1 = (col-w).floor()
-    x2 = (col+w).ceil()
-    y1 = (row-h).floor()
-    y2 = (row+h).ceil()
+    # x1 = (col-w).floor()
+    # x2 = (col+w).ceil()
+    # y1 = (row-h).floor()
+    # y2 = (row+h).ceil()
     pred_box = score[:, :, Y1:Y2, X1:X2]
     center = tensor([(X1+X2)/2, (Y1+Y2)/2], device=label.device).view(2, 1, 1, 1, 1).expand(2, 1,1,H,W)
     distance = ((row-center[1]).square() + (col-center[0]).square()).sqrt()

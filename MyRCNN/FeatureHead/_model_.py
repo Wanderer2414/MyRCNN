@@ -13,7 +13,6 @@ class BoundingBoxRegression(Module):
         self.score = Sequential(
             Conv2d(in_channels=color_channels, out_channels=1, kernel_size=1, bias=False, device=device)
         )
-        self.laplace = tensor([[0, -1, 0], [-1, 4, -1], [0, -1, 0]], dtype=tfloat, device=device).view(1, 1, 3, 3)
         self.ft =  Sequential(
             Conv2d(in_channels=3, out_channels=6, kernel_size=3, stride=1, padding=1, device=device),
             LeakyReLU(),
@@ -21,11 +20,12 @@ class BoundingBoxRegression(Module):
         )
         self.color_channels = color_channels
     def forward(self, x: Tensor):
-        color = conv2d(x, self.laplace.expand(self.color_channels, 1, 3, 3), stride=1, padding=1, groups=self.color_channels)
+        color = avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         wh = self.bbx(color)
         score: Tensor = self.score(x)
         score = score - score.min()
-        score = conv2d(score, self.laplace, stride=1, padding=1)
+        for i in range(10):
+            score = avg_pool2d(score, kernel_size=3, stride=1, padding=1)
         wh = self.ft(cat([score, wh], dim=1))
         return cat([score, wh], dim=1)
         
@@ -87,38 +87,39 @@ class FeatureHead(Module):
         
     def forward(self, mask: Tensor, color: Tensor) -> Tensor:
         bbx: Tensor = self.bbx(color[:, :self.bbx_channels, :, :]) # [B, SWH, H, W]
-        B, C, H, W = bbx.shape
-        score = bbx[:, 0:1, :, :]
-        score_flat = sigmoid(score).reshape(B, -1, 1)
-        indices= topk(score_flat, 10, dim=1).indices
-        indices = zeros_like(score_flat, dtype=tbool, device=score.device).scatter(1, indices, True) | (score_flat > 0.8)
-        B, C, H, W = color.shape
-        w  = bbx[:, 1:2, :, :].reshape(B, -1, 1)
-        h = bbx[:, 2:3, :, :].reshape(B, -1, 1)
-        y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
-        x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
-        indices = indices & (w>5) & (h>5)
-        w: Tensor = w[indices]
-        h: Tensor = h[indices]
-        x: Tensor = x[indices]
-        y: Tensor = y[indices]
-        x1 = (x-w).floor().long()
-        x2 = (x+w).ceil().long()
-        y1 = (y-w).floor().long()
-        y2 = (y+w).ceil().long()
-        boxes = stack([x1, y1, x2, y2], dim=-1)
-        color_boxes = zeros(size=(0, self.cls_channels, 900, 900), dtype=tfloat, device=mask.device)
-        boundary_boxes = zeros(size=(0, mask.shape[1], 900, 900), dtype=tfloat, device=mask.device)
-        for box in boxes:
-            x1, y1, x2, y2 = box
-            mask_box = interpolate(mask[:, :, y1:y2, x1:x2], size=(900, 900), mode="nearest")
-            color_box = interpolate(color[:, self.bbx_channels:, y1:y2, x1:x2], size=(900, 900), mode="nearest")
-            color_boxes = cat([color_boxes, color_box], dim=0)
-            boundary_boxes = cat([boundary_boxes, mask_box], dim=0)
-        cls: Tensor = zeros(size=(B, H * W, 100), dtype=tfloat, device=mask.device)
-        indices = indices.repeat(1, 1, 100)
-        pred:Tensor = self.cls(boundary_boxes, color_boxes)
-        cls[indices] =pred.flatten()
-        cls = cls.reshape(B, self.num_classes, H, W)
-        score = cat([score, bbx[:, 1:3, :, :], cls], dim = 1)
-        return score
+        return bbx
+        # B, C, H, W = bbx.shape
+        # score = bbx[:, 0:1, :, :]
+        # score_flat = sigmoid(score).reshape(B, -1, 1)
+        # indices= topk(score_flat, 10, dim=1).indices
+        # indices = zeros_like(score_flat, dtype=tbool, device=score.device).scatter(1, indices, True) | (score_flat > 0.8)
+        # B, C, H, W = color.shape
+        # w  = bbx[:, 1:2, :, :].reshape(B, -1, 1)
+        # h = bbx[:, 2:3, :, :].reshape(B, -1, 1)
+        # y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
+        # x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
+        # indices = indices & (w>5) & (h>5)
+        # w: Tensor = w[indices]
+        # h: Tensor = h[indices]
+        # x: Tensor = x[indices]
+        # y: Tensor = y[indices]
+        # x1 = (x-w).floor().long()
+        # x2 = (x+w).ceil().long()
+        # y1 = (y-w).floor().long()
+        # y2 = (y+w).ceil().long()
+        # boxes = stack([x1, y1, x2, y2], dim=-1)
+        # color_boxes = zeros(size=(0, self.cls_channels, 900, 900), dtype=tfloat, device=mask.device)
+        # boundary_boxes = zeros(size=(0, mask.shape[1], 900, 900), dtype=tfloat, device=mask.device)
+        # for box in boxes:
+        #     x1, y1, x2, y2 = box
+        #     mask_box = interpolate(mask[:, :, y1:y2, x1:x2], size=(900, 900), mode="nearest")
+        #     color_box = interpolate(color[:, self.bbx_channels:, y1:y2, x1:x2], size=(900, 900), mode="nearest")
+        #     color_boxes = cat([color_boxes, color_box], dim=0)
+        #     boundary_boxes = cat([boundary_boxes, mask_box], dim=0)
+        # cls: Tensor = zeros(size=(B, H * W, 100), dtype=tfloat, device=mask.device)
+        # indices = indices.repeat(1, 1, 100)
+        # pred:Tensor = self.cls(boundary_boxes, color_boxes)
+        # cls[indices] =pred.flatten()
+        # cls = cls.reshape(B, self.num_classes, H, W)
+        # score = cat([score, bbx[:, 1:3, :, :], cls], dim = 1)
+        # return score
