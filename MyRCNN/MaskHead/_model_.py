@@ -16,13 +16,6 @@ class MaskHead(Module):
              [ 0,  0,  0],
              [ 1,  2,  1]], dtype=tfloat, device=device
         ).view(1, 1, 3, 3).expand(channels, 1, 3, 3)
-
-        self.net = Sequential(
-            Conv2d(in_channels=channels, out_channels=6*channels, kernel_size=1, device=device),
-            ReLU(),
-            Conv2d(in_channels=6*channels, out_channels=channels, kernel_size=1, device=device)
-        )
-        self.avg = AvgPool2d(3, 1, 1)
     def forward(self, x:Tensor) -> Tensor:
         Gx = conv2d(x, self.Gx, padding=1, stride=1, groups=3)
         Gy = conv2d(x, self.Gy, padding=1, stride=1, groups=3)

@@ -79,12 +79,14 @@ class Classification(Module):
 class FeatureHead(Module):
     def __init__(self, mask_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
-        self.bbx = BoundingBoxRegression(color_channels=color_channels, device=device)
-        self.cls = Classification(boundary_channels=mask_channels, color_channels=color_channels, num_classes=num_classes, device=device)
+        self.bbx_channels = color_channels//2
+        self.cls_channels = color_channels - color_channels//2
+        self.bbx = BoundingBoxRegression(color_channels=self.bbx_channels, device=device)
+        self.cls = Classification(boundary_channels=mask_channels, color_channels=self.cls_channels, num_classes=num_classes, device=device)
         self.num_classes = num_classes
         
     def forward(self, mask: Tensor, color: Tensor) -> Tensor:
-        bbx: Tensor = self.bbx(color) # [B, SWH, H, W]
+        bbx: Tensor = self.bbx(color[:, :self.bbx_channels, :, :]) # [B, SWH, H, W]
         B, C, H, W = bbx.shape
         score = bbx[:, 0:1, :, :]
         score_flat = sigmoid(score).reshape(B, -1, 1)
@@ -105,12 +107,12 @@ class FeatureHead(Module):
         y1 = (y-w).floor().long()
         y2 = (y+w).ceil().long()
         boxes = stack([x1, y1, x2, y2], dim=-1)
-        color_boxes = zeros(size=(0, color.shape[1], 900, 900), dtype=tfloat, device=mask.device)
+        color_boxes = zeros(size=(0, self.cls_channels, 900, 900), dtype=tfloat, device=mask.device)
         boundary_boxes = zeros(size=(0, mask.shape[1], 900, 900), dtype=tfloat, device=mask.device)
         for box in boxes:
             x1, y1, x2, y2 = box
             mask_box = interpolate(mask[:, :, y1:y2, x1:x2], size=(900, 900), mode="nearest")
-            color_box = interpolate(color[:, :, y1:y2, x1:x2], size=(900, 900), mode="nearest")
+            color_box = interpolate(color[:, self.bbx_channels:, y1:y2, x1:x2], size=(900, 900), mode="nearest")
             color_boxes = cat([color_boxes, color_box], dim=0)
             boundary_boxes = cat([boundary_boxes, mask_box], dim=0)
         cls: Tensor = zeros(size=(B, H * W, 100), dtype=tfloat, device=mask.device)
