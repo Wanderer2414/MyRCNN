@@ -24,8 +24,7 @@ class BoundingBoxRegression(Module):
         wh = self.bbx(color)
         score: Tensor = self.score(x)
         score = score - score.min()
-        for i in range(10):
-            score = avg_pool2d(score, kernel_size=3, stride=1, padding=1)
+        score = avg_pool2d(score, kernel_size=3, stride=1, padding=1)
         wh = self.ft(cat([score, wh], dim=1))
         return cat([score, wh], dim=1)
         

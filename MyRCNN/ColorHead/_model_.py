@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, ReLU, Sequential, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, Parameter
-from torch import Tensor, device, cat, where, stack, arange, float as tfloat, zeros, tensor
+from torch import Tensor, device, cat, where, stack, arange, float as tfloat, zeros, tensor, ones
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu
 
 class ColorHead(Module):
@@ -27,7 +27,7 @@ class ColorHead(Module):
         self.score2 = Sequential(
             Conv2d(in_channels=64, out_channels=out_channels, kernel_size=1, bias=False, device=device)
         )
-        self.mix = Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=1, groups=out_channels, device=device)
+        self.weight = Parameter(ones(1, device=device))
         self.out_channels = out_channels
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
     def forward(self, x:Tensor) -> Tensor:
@@ -41,7 +41,7 @@ class ColorHead(Module):
             even = sc[:, :, 0::2, :, :].max(dim=2).values
             odd = sc[:, :, 1::2, :, :].max(dim=2).values
             sc = cat([even, odd], dim=1)
-            score = self.mix(score) + interpolate(self.score2(sc), size=(H, W), mode="nearest")
+            score = score*self.weight + interpolate(self.score2(sc), size=(H, W), mode="nearest")
             downgrade = self.downgrade2(downgrade)
             # score = self.net(cat([score, t], dim=1))
             # score = score - score.min()

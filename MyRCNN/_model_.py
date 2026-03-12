@@ -95,8 +95,7 @@ class Model:
         start = time()
         for epoch in range(100):
             sloss = 0
-            i = 0
-            for j in range(10):
+            for i in range(10):
                 tens:Tensor = x.getTrainTensor(i).to(self.device)
                 label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
                 if (label.shape[1] == 0):
