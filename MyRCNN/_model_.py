@@ -44,6 +44,11 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     score =  binary_cross_entropy_with_logits(pred_box, target)
     
     boxes = scores[1][:, :, 1:].squeeze(0)
+    cx = (boxes[:, 0:1] + boxes[:, 2:3])/2
+    cy = (boxes[:, 1:2] + boxes[:, 3:4])/2
+    indices = (cx>X1) & (cx<X2) & (cy>Y1) & (cy<Y2)
+    indices = indices.repeat(1, 4)
+    boxes = boxes[indices].reshape(-1, 4)
     N = boxes.shape[0]
     if (N>0):
         boxes_gt = label[0:4].unsqueeze(0).repeat(boxes.shape[0], 1)
