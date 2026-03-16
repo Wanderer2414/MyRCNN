@@ -84,28 +84,44 @@ class FeatureHead(Module):
         self.cls = Classification(boundary_channels=mask_channels, color_channels=self.cls_channels, num_classes=num_classes, device=device)
         self.num_classes = num_classes
         
-    def forward(self, mask: Tensor, color: Tensor) -> Tensor:
+    def forward(self, mask: Tensor, color: Tensor) -> list[Tensor]:
         bbx: Tensor = self.bbx(color[:, :self.bbx_channels, :, :]) # [B, SWH, H, W]
-        return bbx
+        B, C, H, W = color.shape
+        score = bbx[:, 0:1, :, :]
+        y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
+        x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
+        bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
+        score_flat = sigmoid(bbx_flat[:,:,0:1])
+        w = bbx_flat[:,:,0:1]
+        h = bbx_flat[:,:,1:2]
+
+        topk_idx = topk(score_flat,10,dim=1).indices
+
+        mask = zeros_like(score_flat,dtype=tbool)
+        mask = mask.scatter(1,topk_idx,True)
+        mask = mask & (score_flat>0.6)
+
+        x = x[mask]
+        y = y[mask]
+        w = w[mask].exp()*100
+        h = h[mask].exp()*100
+        s = score_flat[mask]
+        x1 = (x-w).floor().long()
+        x2 = (x+w).ceil().long()
+        y1 = (y-h).floor().long()
+        y2 = (y+h).ceil().long()
+        out = stack([s,x1,y1,x2,y2],dim=-1).unsqueeze(0)
+        return [score, out]
         # B, C, H, W = bbx.shape
         # score = bbx[:, 0:1, :, :]
         # score_flat = sigmoid(score).reshape(B, -1, 1)
         # indices= topk(score_flat, 10, dim=1).indices
         # indices = zeros_like(score_flat, dtype=tbool, device=score.device).scatter(1, indices, True) | (score_flat > 0.8)
-        # B, C, H, W = color.shape
         # w  = bbx[:, 1:2, :, :].reshape(B, -1, 1)
         # h = bbx[:, 2:3, :, :].reshape(B, -1, 1)
-        # y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
-        # x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
         # indices = indices & (w>5) & (h>5)
         # w: Tensor = w[indices]
         # h: Tensor = h[indices]
-        # x: Tensor = x[indices]
-        # y: Tensor = y[indices]
-        # x1 = (x-w).floor().long()
-        # x2 = (x+w).ceil().long()
-        # y1 = (y-w).floor().long()
-        # y2 = (y+w).ceil().long()
         # boxes = stack([x1, y1, x2, y2], dim=-1)
         # color_boxes = zeros(size=(0, self.cls_channels, 900, 900), dtype=tfloat, device=mask.device)
         # boundary_boxes = zeros(size=(0, mask.shape[1], 900, 900), dtype=tfloat, device=mask.device)

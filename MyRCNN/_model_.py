@@ -19,15 +19,15 @@ class MyRCNN(Module):
         color: Tensor = self.color(x)
         feature: Tensor = self.feat(mask, color)
         return feature
-def MyBBLoss(scores: Tensor, label: Tensor) -> Tensor:
+def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     label = label.squeeze().squeeze()
     X1, Y1, X2, Y2 = label[0:4]
     X1 = X1.floor().long()
     X2 = X2.ceil().long()
     Y1 = Y1.floor().long()
     Y2 = Y2.ceil().long()
-    B, C, H, W = scores.shape
-    score = scores[:, 0:1, :, :]
+    B, C, H, W = scores[0].shape
+    score = scores[0][:, 0:1, :, :]
     # w = scores[:, 1:2, :, :]
     # h = scores[:, 2:3, :, :]
     row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,1,H,W)
@@ -41,11 +41,14 @@ def MyBBLoss(scores: Tensor, label: Tensor) -> Tensor:
     distance = ((row-center[1]).square() + (col-center[0]).square()).sqrt()
     target = distance[:, :, Y1:Y2, X1:X2]
     target = 1-target/target.max()
-    h, w = target.shape[2:4]
-    h //= 2
-    w //= 2
-    # print(f"Target: {target[0, 0, h, w]}, Logits: {pred_box[0, 0, h, w]} ({h}, {w}, {target.shape}")
     score =  binary_cross_entropy_with_logits(pred_box, target)
+    
+    boxes = scores[1][:, :, 1:].squeeze(0)
+    N = boxes.shape[0]
+    if (N>0):
+        boxes_gt = label[0:4].unsqueeze(0).repeat(boxes.shape[0], 1)
+        CIouLoss = complete_box_iou_loss(boxes, boxes_gt, reduction="mean")
+        return score + CIouLoss
     return score
 def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
     # Score, width, height, class x 100
@@ -90,7 +93,7 @@ class Model:
         self.model = MyRCNN(channels=3, device=device)
         self.opt = Adam(self.model.parameters(), lr=1e-2)
         self.device = device
-    def train(self, x: Dataset, loss: Callable[[Tensor, Tensor], Tensor]):
+    def train(self, x: Dataset, loss: Callable[[list[Tensor], Tensor], Tensor]):
         size = x.getTrainSize()
         start = time()
         for epoch in range(100):
@@ -100,7 +103,7 @@ class Model:
                 label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
                 if (label.shape[1] == 0):
                   continue
-                out: Tensor = self.model(tens)
+                out: list[Tensor] = self.model(tens)
                 lss = loss(out,label)
                 self.opt.zero_grad()
                 lss.backward()
