@@ -88,7 +88,6 @@ def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
     gt_r = gt_w/(gt_h + eps)
     sq = (pred_s/(gt_s + eps) - 1).square()
     rq = (pred_r - gt_r).square()
-    print(sq.mean(), rq.mean(), c2.mean())
     return sq + rq
 
 def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
@@ -157,8 +156,7 @@ class Model:
         start = time()
         for epoch in range(100):
             sloss = 0
-            i = 0
-            for j in range(10):
+            for i in range(20):
                 tens:Tensor = x.getTrainTensor(i).to(self.device)
                 label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
                 if (label.shape[1] == 0):
