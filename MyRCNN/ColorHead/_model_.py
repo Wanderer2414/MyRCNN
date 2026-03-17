@@ -19,6 +19,9 @@ class ColorHead(Module):
         self.prepare = Sequential(
             Conv2d(in_channels=in_channels, out_channels=16, kernel_size=1, device=device),
             BatchNorm2d(num_features=16, device=device),
+            LeakyReLU(),
+            Conv2d(in_channels=16, out_channels=16, kernel_size=1, device=device),
+            BatchNorm2d(num_features=16, device=device),
             LeakyReLU()            
         )
         self.downgrade = Sequential(

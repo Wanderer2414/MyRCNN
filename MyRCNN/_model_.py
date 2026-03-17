@@ -12,8 +12,8 @@ class MyRCNN(Module):
     def __init__(self, channels: int, device: device = device("cpu"))->None:
         super().__init__()
         self.mask = MaskHead.MaskHead(device=device)
-        self.color = ColorHead.ColorHead(in_channels=3, out_channels=8, device=device)
-        self.feat = FeatureHead.FeatureHead(color_channels=8, mask_channels=1, num_classes=100, device=device)
+        self.color = ColorHead.ColorHead(in_channels=3, out_channels=16, device=device)
+        self.feat = FeatureHead.FeatureHead(color_channels=16, mask_channels=1, num_classes=100, device=device)
     def forward(self, x:Tensor) -> Tensor:
         mask: Tensor = self.mask(x)
         color: Tensor = self.color(x)
@@ -51,7 +51,7 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     boxes = boxes[indices].reshape(-1, 4)
     N = boxes.shape[0]
     if (N>0):
-        boxes_gt = label[0:4].unsqueeze(0).repeat(boxes.shape[0], 1)
+        boxes_gt = label[0:4].unsqueeze(0).repeat(N, 1)
         CIouLoss = complete_box_iou_loss(boxes, boxes_gt, reduction="mean")
         return score + CIouLoss
     return score
@@ -96,7 +96,7 @@ def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
 class Model:
     def __init__(self, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
-        self.opt = Adam(self.model.parameters(), lr=1e-2)
+        self.opt = Adam(self.model.parameters(), lr=1e-3)
         self.device = device
     def train(self, x: Dataset, loss: Callable[[list[Tensor], Tensor], Tensor]):
         size = x.getTrainSize()
