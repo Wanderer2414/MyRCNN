@@ -52,9 +52,63 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     N = boxes.shape[0]
     if (N>0):
         boxes_gt = label[0:4].unsqueeze(0).repeat(N, 1)
-        CIouLoss = complete_box_iou_loss(boxes, boxes_gt, reduction="mean")
-        return score + CIouLoss
+        FIoULoss = FIoU(boxes, boxes_gt).mean()
+        return score + FIoULoss
     return score
+def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
+    """Summary
+
+    Args:
+        boxes (Tensor): [N, 4] -> [x1,y1,x2,y2]
+        boxes_gt (Tensor): [N, 4] -> [x1, y1, x2, y2]
+
+    Returns:
+        Tensor: _description_
+    """
+    pred_x1 = boxes[:, 0:1]
+    pred_x2 = boxes[:, 2:3]
+    pred_y1 = boxes[:, 1:2]
+    pred_y2 = boxes[:, 3:4]
+    pred_cX = (pred_x1 + pred_x2)/2
+    pred_cY = (pred_y1 + pred_y2)/2
+    pred_w = pred_x2 - pred_x1
+    pred_h = pred_y2 - pred_y1
+    pred_s = pred_w * pred_h
+    gt_x1 = boxes_gt[:, 0:1]
+    gt_x2 = boxes_gt[:, 2:3]
+    gt_y1 = boxes_gt[:, 1:2]
+    gt_y2 = boxes_gt[:, 3:4]
+    gt_cX = (gt_x1 + gt_x2)/2
+    gt_cY = (gt_y1 + gt_y2)/2
+    gt_w = gt_x2 - gt_x1
+    gt_h = gt_y2 - gt_y1
+    gt_s = gt_w * gt_h
+    c2 = 4*(((pred_cX - gt_cX)/gt_w).square() + ((pred_cY - gt_cY)/gt_h).square())
+    pred_r = pred_w/(pred_h+eps)
+    gt_r = gt_w/(gt_h + eps)
+    sq = (pred_s/(gt_s + eps) - 1).square()
+    rq = (pred_r - gt_r).square()
+    print(sq.mean(), rq.mean(), c2.mean())
+    return sq + rq
+
+def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
+    """Summary
+
+    Args:
+        boxes (Tensor): [N, 4] -> [x1,y1,x2,y2]
+        boxes_gt (Tensor): [N, 4] -> [x1, y1, x2, y2]
+
+    Returns:
+        Tensor: _description_
+    """
+    x1 = max(boxes[:, :, :, 0:1], boxes_gt[:, :, :, 0:1])
+    x2 = min(boxes[:, :, :, 2:3], boxes_gt[:, :, :, 2:3])
+    y1 = max(boxes[:, :, :, 1:2], boxes_gt[:, :, :, 1:2])
+    y2 = min(boxes[:, :, :, 3:4], boxes_gt[:, :, :, 3:4])
+    return ((x2 - x1)*(y2-y1)).abs()
+    
+    
+    
 def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
     # Score, width, height, class x 100
     label = label.squeeze().squeeze()
@@ -103,7 +157,8 @@ class Model:
         start = time()
         for epoch in range(100):
             sloss = 0
-            for i in range(10):
+            i = 0
+            for j in range(10):
                 tens:Tensor = x.getTrainTensor(i).to(self.device)
                 label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
                 if (label.shape[1] == 0):
