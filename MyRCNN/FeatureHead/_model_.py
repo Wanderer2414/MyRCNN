@@ -2,25 +2,6 @@ from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgP
 from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
 from torchvision.ops import nms
-    
-class SumPool2d(Module):
-    def __init__(self, kernel_size=3, stride=1, padding=0):
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-    def forward(self, x: Tensor) -> Tensor:
-        if self.padding > 0:
-            x = pad(x, (self.padding, self.padding, self.padding, self.padding), mode="reflect")
-        B, C, H, W = x.shape
-        patches = unfold(x, kernel_size=self.kernel_size, stride=self.stride)
-        patches = patches.view(B, C, self.kernel_size * self.kernel_size, -1)
-        patches = patches.sum(dim=2)
-        H_out = (H - self.kernel_size) // self.stride + 1
-        W_out = (W - self.kernel_size) // self.stride + 1
-        return patches.view(B, C, H_out, W_out)
-
-
 class BoundingBoxRegression(Module):
     def __init__(self, half_color_channels: int, device: device = device("cpu")):
         super().__init__()
@@ -28,19 +9,17 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels, kernel_size=1, bias=False, groups=half_color_channels, device=device),
+            Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=1, bias=False, device=device),
             
         )
         self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,5), stride=1, padding=(0,2), bias=False, groups=half_color_channels,device=device)
         self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(5,1), stride=1, padding=(2, 0), bias=False, groups=half_color_channels, device=device)
     def forward(self, x: Tensor):
-        color = avg_pool2d(x, kernel_size=3, stride=1, padding=1)
-        wh: Tensor = self.bbx(color)
+        wh: Tensor = self.bbx(x)
         w = self.width(wh[:, 0::2, :, :]).max(dim=1, keepdim=True).values
         h = self.height(wh[:, 1::2, :, :]).max(dim=1, keepdim=True).values
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
-        score = avg_pool2d(score, kernel_size=3, stride=1, padding=1)
         return cat([score, wh], dim=1)
         
 class Classification(Module):
@@ -100,7 +79,7 @@ class FeatureHead(Module):
     def forward(self, mask: Tensor, color: Tensor) -> list[Tensor]:
         bbx: Tensor = self.bbx(color) # [B, SWH, H, W]
         B, C, H, W = color.shape
-        score = bbx[:, 0:1, :, :]
+        score = bbx[:,0:1,:,:]
         y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
         x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
         bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
@@ -113,7 +92,7 @@ class FeatureHead(Module):
         mask = zeros_like(score_flat,dtype=tbool)
         mask = mask.scatter(1,topk_idx,True)
         mask = mask & (score_flat>0.6)
-        mask = mask | (score_flat>0.9)
+        mask = mask | (score_flat>0.8)
 
         x = x[mask]
         y = y[mask]
@@ -125,7 +104,6 @@ class FeatureHead(Module):
         y1 = (y-h).floor().long()
         y2 = (y+h).ceil().long()
         out = stack([s,x1,y1,x2,y2],dim=-1).unsqueeze(0)
-        
         # boxes= out[:, 1:] # [N, x1, y1, x2, y2]
         # confidence = out[:, 0]
         # nms_idx = nms(boxes, confidence, 0.2)
