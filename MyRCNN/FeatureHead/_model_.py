@@ -49,16 +49,15 @@ class SumPool2d(Module):
         W_out = (W - self.kernel_size) // self.stride + 1
         return patches.view(B, C, H_out, W_out)
 class BoundingBoxRegression(Module):
-    def __init__(self, color_channels: int, device: device = device("cpu")):
+    def __init__(self, half_color_channels: int, device: device = device("cpu")):
         super().__init__()
         self.bbx = Sequential(
-            Conv2d(in_channels=color_channels, out_channels=color_channels*2, kernel_size=5, stride=1, padding=2, groups=color_channels, bias=False, device=device)
+            Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=5, stride=1, padding=2, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            Conv2d(in_channels=color_channels, out_channels=1, kernel_size=1, bias=False, device=device),
+            Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=1, bias=False, device=device),
             AvgPool2d(kernel_size=5, stride=1, padding=2)
         )
-        self.color_channels = color_channels
     def forward(self, x: Tensor):
         color = avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         wh: Tensor = self.bbx(color)
@@ -117,16 +116,14 @@ class Classification(Module):
         
 
 class FeatureHead(Module):
-    def __init__(self, mask_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
+    def __init__(self, mask_channels: int, half_color_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
-        self.bbx_channels = color_channels//2
-        self.cls_channels = color_channels - color_channels//2
-        self.bbx = BoundingBoxRegression(color_channels=self.bbx_channels, device=device)
-        self.cls = Classification(boundary_channels=mask_channels, color_channels=self.cls_channels, num_classes=num_classes, device=device)
+        self.bbx = BoundingBoxRegression(half_color_channels=half_color_channels, device=device)
+        # self.cls = Classification(boundary_channels=mask_channels, color_channels=self.cls_channels, num_classes=num_classes, device=device)
         self.num_classes = num_classes
         
     def forward(self, mask: Tensor, color: Tensor) -> list[Tensor]:
-        bbx: Tensor = self.bbx(color[:, :self.bbx_channels, :, :]) # [B, SWH, H, W]
+        bbx: Tensor = self.bbx(color) # [B, SWH, H, W]
         B, C, H, W = color.shape
         score = bbx[:, 0:1, :, :]
         y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
@@ -136,7 +133,7 @@ class FeatureHead(Module):
         w = bbx_flat[:,:,0:1]
         h = bbx_flat[:,:,1:2]
 
-        topk_idx = topk(score_flat,5,dim=1).indices
+        topk_idx = topk(score_flat,10,dim=1).indices
 
         mask = zeros_like(score_flat,dtype=tbool)
         mask = mask.scatter(1,topk_idx,True)

@@ -12,8 +12,8 @@ class MyRCNN(Module):
     def __init__(self, channels: int, device: device = device("cpu"))->None:
         super().__init__()
         self.mask = MaskHead.MaskHead(device=device)
-        self.color = ColorHead.ColorHead(in_channels=3, out_channels=16, device=device)
-        self.feat = FeatureHead.FeatureHead(color_channels=16, mask_channels=1, num_classes=100, device=device)
+        self.color = ColorHead.ColorHead(in_channels=3, half_out_channels=16, device=device)
+        self.feat = FeatureHead.FeatureHead(half_color_channels=16, mask_channels=1, num_classes=100, device=device)
     def forward(self, x:Tensor) -> Tensor:
         mask: Tensor = self.mask(x)
         color: Tensor = self.color(x)
@@ -83,7 +83,7 @@ def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
     gt_w = gt_x2 - gt_x1
     gt_h = gt_y2 - gt_y1
     gt_s = gt_w * gt_h
-    c2 = 4*(((pred_cX - gt_cX)/gt_w).square() + ((pred_cY - gt_cY)/gt_h).square())
+    # c2 = 4*(((pred_cX - gt_cX)/gt_w).square() + ((pred_cY - gt_cY)/gt_h).square())
     pred_r = pred_w/(pred_h+eps)
     gt_r = gt_w/(gt_h + eps)
     sq = (pred_s/(gt_s + eps) - 1).square()
