@@ -1,36 +1,7 @@
-from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d
+from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d
 from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
 from torchvision.ops import nms
-def var_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
-    print(x.shape)
-    if padding > 0:
-        x = pad(x, (padding, padding, padding, padding), mode="reflect")
-    B, C, H, W = x.shape
-    patches = unfold(x, kernel_size=kernel_size, stride=stride)
-    patches = patches.view(B, C, kernel_size * kernel_size, -1)
-    M, I = patches.max(dim=2, keepdim=True)
-    patches = patches[:, :, 0:1, :]*2 - M
-    H_out = (H - kernel_size) // stride + 1
-    W_out = (W - kernel_size) // stride + 1
-    return patches.view(B, C, H_out, W_out)
-class VarPool2d(Module):
-    def __init__(self, kernel_size=3, stride=1, padding=0):
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-    def forward(self, x: Tensor) -> Tensor:
-        if self.padding > 0:
-            x = pad(x, (self.padding, self.padding, self.padding, self.padding), mode="reflect")
-        B, C, H, W = x.shape
-        patches = unfold(x, kernel_size=self.kernel_size, stride=self.stride)
-        patches = patches.view(B, C, self.kernel_size * self.kernel_size, -1)
-        M, I = patches.max(dim=2, keepdim=True)
-        patches = patches[:, :, 0:1, :]*2 - M
-        H_out = (H - self.kernel_size) // self.stride + 1
-        W_out = (W - self.kernel_size) // self.stride + 1
-        return patches.view(B, C, H_out, W_out)
     
 class SumPool2d(Module):
     def __init__(self, kernel_size=3, stride=1, padding=0):
@@ -48,21 +19,25 @@ class SumPool2d(Module):
         H_out = (H - self.kernel_size) // self.stride + 1
         W_out = (W - self.kernel_size) // self.stride + 1
         return patches.view(B, C, H_out, W_out)
+
+
 class BoundingBoxRegression(Module):
     def __init__(self, half_color_channels: int, device: device = device("cpu")):
         super().__init__()
         self.bbx = Sequential(
-            Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=5, stride=1, padding=2, groups=2*half_color_channels, bias=False, device=device)
+            Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=1, bias=False, device=device),
-            AvgPool2d(kernel_size=5, stride=1, padding=2)
+            Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels, kernel_size=1, bias=False, groups=half_color_channels, device=device),
+            
         )
+        self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,5), stride=1, padding=(0,2), bias=False, groups=half_color_channels,device=device)
+        self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(5,1), stride=1, padding=(2, 0), bias=False, groups=half_color_channels, device=device)
     def forward(self, x: Tensor):
         color = avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         wh: Tensor = self.bbx(color)
-        w = wh[:, 0::2, :, :].max(dim=1, keepdim=True).values
-        h = wh[:, 1::2, :, :].max(dim=1, keepdim=True).values
+        w = self.width(wh[:, 0::2, :, :]).max(dim=1, keepdim=True).values
+        h = self.height(wh[:, 1::2, :, :]).max(dim=1, keepdim=True).values
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
         score = avg_pool2d(score, kernel_size=3, stride=1, padding=1)

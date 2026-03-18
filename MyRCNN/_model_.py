@@ -149,7 +149,7 @@ def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
 class Model:
     def __init__(self, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
-        self.opt = Adam(self.model.parameters(), lr=1e-3)
+        self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.device = device
     def train(self, x: Dataset, loss: Callable[[list[Tensor], Tensor], Tensor]):
         size = x.getTrainSize()
