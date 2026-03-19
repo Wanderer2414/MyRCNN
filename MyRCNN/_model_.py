@@ -46,7 +46,12 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     boxes = scores[1][:, :, 1:].squeeze(0)
     cx = (boxes[:, 0:1] + boxes[:, 2:3])/2
     cy = (boxes[:, 1:2] + boxes[:, 3:4])/2
-    indices = (cx>X1) & (cx<X2) & (cy>Y1) & (cy<Y2)
+    X1k = (3*X1 + X2)/4
+    X2k = (X1 + 3*X2)/4
+    Y1k = (3*Y1 + Y2)/4
+    Y2k = (Y1 + 3*Y2)/4
+    
+    indices = (cx>X1k) & (cx<X2k) & (cy>Y1k) & (cy<Y2k)
     indices = indices.repeat(1, 4)
     boxes = boxes[indices].reshape(-1, 4)
     N = boxes.shape[0]
