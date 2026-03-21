@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d
-from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid
+from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
 from torchvision.ops import roi_align
 class BoundingBoxRegression(Module):
@@ -114,15 +114,28 @@ class FeatureHead(Module):
         mask = mask & (score_flat>0.6)
         mask = mask | (score_flat>0.8)
 
-        x = x[mask]
-        y = y[mask]
+        cx = x = x[mask]
+        cy = y = y[mask]
         w = w[mask].exp()*10
         h = h[mask].exp()*10
+        
         s = score_flat[mask]
         x1 = (x-w).floor().long()
         x2 = (x+w).ceil().long()
         y1 = (y-h).floor().long()
         y2 = (y+h).ceil().long()
+        
+        indices = (x1 < 0) | (x2 > W)
+        width = minimum(W - cx[indices], cx[indices])
+        x1[indices] = (cx[indices] - width).floor().long()
+        x2[indices] = (cx[indices] + width).ceil().long()
+        
+        indices = (y1 < 0) | (y2 > H)
+        height = minimum(H - cy[indices], cy[indices])
+        y1[indices] = (cy[indices] - height).floor().long()
+        y2[indices] = (cy[indices] + height).ceil().long()
+        
+        
         out = stack([s,x1,y1,x2,y2],dim=-1).unsqueeze(0)
         # boxes= out[:, 1:] # [N, x1, y1, x2, y2]
         # boxes = nms(boxes, 0.6)
