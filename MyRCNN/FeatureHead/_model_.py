@@ -16,8 +16,11 @@ class BoundingBoxRegression(Module):
         self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(5,1), stride=1, padding=(2, 0), bias=False, groups=half_color_channels, device=device)
     def forward(self, x: Tensor):
         wh: Tensor = self.bbx(x)
+        B, C, H, W = x.shape
         w = self.width(wh[:, 0::2, :, :]).max(dim=1, keepdim=True).values
         h = self.height(wh[:, 1::2, :, :]).max(dim=1, keepdim=True).values
+        w = w.exp()*10
+        h = h.exp()*10
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
         return cat([score, wh], dim=1)
@@ -104,8 +107,8 @@ class FeatureHead(Module):
         x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
         bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
         score_flat = sigmoid(bbx_flat[:,:,0:1])
-        w = bbx_flat[:,:,0:1]
-        h = bbx_flat[:,:,1:2]
+        w = bbx_flat[:,:,1:2]
+        h = bbx_flat[:,:,2:3]
 
         topk_idx = topk(score_flat,10,dim=1).indices
 
@@ -116,8 +119,8 @@ class FeatureHead(Module):
 
         cx = x = x[mask]
         cy = y = y[mask]
-        w = w[mask].exp()*10
-        h = h[mask].exp()*10
+        w = w[mask]
+        h = h[mask]
         
         s = score_flat[mask]
         x1 = (x-w).floor().long()
