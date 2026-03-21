@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d
-from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool
+from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
-from torchvision.ops import nms
+from torchvision.ops import roi_align
 class BoundingBoxRegression(Module):
     def __init__(self, half_color_channels: int, device: device = device("cpu")):
         super().__init__()
@@ -21,7 +21,27 @@ class BoundingBoxRegression(Module):
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
         return cat([score, wh], dim=1)
-        
+       
+def nms(boxes: Tensor, iou_threshold)->Tensor:
+    N = boxes.shape[0]
+    rows, cols = meshgrid(arange(N, device=boxes.device), arange(N, device=boxes.device), indexing='ij')
+    
+    boxes1 = boxes.unsqueeze(1).expand(N, N, 4)
+    boxes2 = boxes.unsqueeze(0).expand(N, N, 4)
+    x1 = max(boxes1[:, :, 0], boxes2[:, :, 0])
+    x2 = min(boxes1[:, :, 2], boxes2[:, :, 2])
+    y1 = max(boxes1[:, :, 1], boxes2[:, :, 1])
+    y2 = min(boxes1[:, :, 3], boxes2[:, :, 3])
+    s = ((boxes[:, 2]-boxes[:, 0])*(boxes[:, 3] - boxes[:, 1]))
+    s1 = s.unsqueeze(1).expand(N, N)
+    s2 = s.unsqueeze(0).expand(N, N)
+    intersect = ((x2-x1)*(y2-y1))
+    IoU = intersect/(s1+s2 - intersect)
+    IoU = IoU * (rows>cols)
+    cond = IoU > iou_threshold
+    indices = (cond.any(dim=1).logical_not())
+    
+    return boxes[indices] 
 class Classification(Module):
     # 900 x 900 input
     def __init__(self, boundary_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
@@ -73,7 +93,7 @@ class FeatureHead(Module):
     def __init__(self, mask_channels: int, half_color_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
         self.bbx = BoundingBoxRegression(half_color_channels=half_color_channels, device=device)
-        # self.cls = Classification(boundary_channels=mask_channels, color_channels=self.cls_channels, num_classes=num_classes, device=device)
+        self.cls = Classification(boundary_channels=mask_channels, color_channels=half_color_channels*2, num_classes=num_classes, device=device)
         self.num_classes = num_classes
         
     def forward(self, mask: Tensor, color: Tensor) -> list[Tensor]:
@@ -105,33 +125,12 @@ class FeatureHead(Module):
         y2 = (y+h).ceil().long()
         out = stack([s,x1,y1,x2,y2],dim=-1).unsqueeze(0)
         # boxes= out[:, 1:] # [N, x1, y1, x2, y2]
-        # confidence = out[:, 0]
-        # nms_idx = nms(boxes, confidence, 0.2)
-        # out = out[nms_idx].view(B, -1, 5)
+        # boxes = nms(boxes, 0.6)
+        # N = boxes.shape[0]
+        # boxes = cat([zeros(N, 1), boxes], dim=-1)
+        # output_size = (400, 400)
+        # mask_crop: Tensor = roi_align(mask, boxes, output_size)
+        # color_crop: Tensor = roi_align(color, boxes, output_size)
+        # cls = self.cls(mask_crop, color_crop)
+        # out = cat([out, cls], dim=-1)
         return [score, out]
-        # B, C, H, W = bbx.shape
-        # score = bbx[:, 0:1, :, :]
-        # score_flat = sigmoid(score).reshape(B, -1, 1)
-        # indices= topk(score_flat, 10, dim=1).indices
-        # indices = zeros_like(score_flat, dtype=tbool, device=score.device).scatter(1, indices, True) | (score_flat > 0.8)
-        # w  = bbx[:, 1:2, :, :].reshape(B, -1, 1)
-        # h = bbx[:, 2:3, :, :].reshape(B, -1, 1)
-        # indices = indices & (w>5) & (h>5)
-        # w: Tensor = w[indices]
-        # h: Tensor = h[indices]
-        # boxes = stack([x1, y1, x2, y2], dim=-1)
-        # color_boxes = zeros(size=(0, self.cls_channels, 900, 900), dtype=tfloat, device=mask.device)
-        # boundary_boxes = zeros(size=(0, mask.shape[1], 900, 900), dtype=tfloat, device=mask.device)
-        # for box in boxes:
-        #     x1, y1, x2, y2 = box
-        #     mask_box = interpolate(mask[:, :, y1:y2, x1:x2], size=(900, 900), mode="nearest")
-        #     color_box = interpolate(color[:, self.bbx_channels:, y1:y2, x1:x2], size=(900, 900), mode="nearest")
-        #     color_boxes = cat([color_boxes, color_box], dim=0)
-        #     boundary_boxes = cat([boundary_boxes, mask_box], dim=0)
-        # cls: Tensor = zeros(size=(B, H * W, 100), dtype=tfloat, device=mask.device)
-        # indices = indices.repeat(1, 1, 100)
-        # pred:Tensor = self.cls(boundary_boxes, color_boxes)
-        # cls[indices] =pred.flatten()
-        # cls = cls.reshape(B, self.num_classes, H, W)
-        # score = cat([score, bbx[:, 1:3, :, :], cls], dim = 1)
-        # return score
