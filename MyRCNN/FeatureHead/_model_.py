@@ -115,7 +115,7 @@ class FeatureHead(Module):
         # mask = zeros_like(score_flat,dtype=tbool)
         # mask = mask.scatter(1,topk_idx,True)
         # mask = mask & (score_flat>0.6)
-        mask = (score_flat>0.9)
+        mask = (score_flat>0.8)
 
         cx = x = x[mask]
         cy = y = y[mask]
