@@ -12,39 +12,19 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
             
         )
-        self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,5), stride=1, padding=(0,2), bias=False, groups=half_color_channels,device=device)
-        self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(5,1), stride=1, padding=(2, 0), bias=False, groups=half_color_channels, device=device)
+        self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,11), stride=1, padding=(0,5),groups=half_color_channels,device=device)
+        self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(11,1), stride=1, padding=(5, 0),groups=half_color_channels, device=device)
     def forward(self, x: Tensor):
         wh: Tensor = self.bbx(x)
         B, C, H, W = x.shape
         w = self.width(wh[:, 0::2, :, :]).max(dim=1, keepdim=True).values
         h = self.height(wh[:, 1::2, :, :]).max(dim=1, keepdim=True).values
-        w = w.exp()*10
-        h = h.exp()*10
+        w = sigmoid(w)*W/2
+        h = sigmoid(h)*H/2
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
         return cat([score, wh], dim=1)
        
-def nms(boxes: Tensor, iou_threshold)->Tensor:
-    N = boxes.shape[0]
-    rows, cols = meshgrid(arange(N, device=boxes.device), arange(N, device=boxes.device), indexing='ij')
-    
-    boxes1 = boxes.unsqueeze(1).expand(N, N, 4)
-    boxes2 = boxes.unsqueeze(0).expand(N, N, 4)
-    x1 = max(boxes1[:, :, 0], boxes2[:, :, 0])
-    x2 = min(boxes1[:, :, 2], boxes2[:, :, 2])
-    y1 = max(boxes1[:, :, 1], boxes2[:, :, 1])
-    y2 = min(boxes1[:, :, 3], boxes2[:, :, 3])
-    s = ((boxes[:, 2]-boxes[:, 0])*(boxes[:, 3] - boxes[:, 1]))
-    s1 = s.unsqueeze(1).expand(N, N)
-    s2 = s.unsqueeze(0).expand(N, N)
-    intersect = ((x2-x1)*(y2-y1))
-    IoU = intersect/(s1+s2 - intersect)
-    IoU = IoU * (rows>cols)
-    cond = IoU > iou_threshold
-    indices = (cond.any(dim=1).logical_not())
-    
-    return boxes[indices] 
 class Classification(Module):
     # 900 x 900 input
     def __init__(self, boundary_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
