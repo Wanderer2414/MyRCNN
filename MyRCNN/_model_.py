@@ -14,11 +14,11 @@ class MyRCNN(Module):
         self.mask = MaskHead.MaskHead(device=device)
         self.color = ColorHead.ColorHead(in_channels=3, half_out_channels=16, device=device)
         self.feat = FeatureHead.FeatureHead(half_color_channels=16, mask_channels=1, num_classes=100, device=device)
-    def forward(self, x:Tensor) -> Tensor:
+    def forward(self, x:Tensor) -> tuple[Tensor,Tensor,Tensor]:
         mask: Tensor = self.mask(x)
         color: Tensor = self.color(x)
         feature: Tensor = self.feat(mask, color)
-        return feature
+        return mask, color, feature
 def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     label = label.squeeze().squeeze()
     X1, Y1, X2, Y2 = label[0:4]
@@ -111,52 +111,27 @@ def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
     y2 = min(boxes[:, :, :, 3:4], boxes_gt[:, :, :, 3:4])
     return ((x2 - x1)*(y2-y1)).abs()
     
-    
-    
-def MyLoss(scores: Tensor, label: Tensor) -> Tensor:
-    # Score, width, height, class x 100
-    label = label.squeeze().squeeze()
-    B, C, H, W = scores.shape
-    X1, Y1, X2, Y2 = label[0:4]
-    X1 = X1.floor().long()
-    X2 = X2.ceil().long()
-    Y1 = Y1.floor().long()
-    Y2 = Y2.ceil().long()
-    center = tensor([(X1+X2)/2, (Y1+Y2)/2], device=label.device).view(2, 1, 1, 1, 1).expand(2, 1,1,H,W)
-    row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,1,H,W)
-    col = arange(W, device=label.device, dtype=tfloat).view(1,1,1,W).expand(1,1,H,W)
-    distance = ((row-center[1]).square() + (col-center[0]).square()).sqrt()
-    score = distance.clone()
-    score = (1-score/score.max())
-    region_pred = scores[:, 0, Y1:Y2, X1:X2]
-    target = score[:, 0, Y1:Y2, X1:X2]
-    score = binary_cross_entropy_with_logits(region_pred, target)
-    target = label[0:4].view(-1, 4)
-    w = scores[:, 1, :, :].unsqueeze(1)
-    h = scores[:, 2, :, :].unsqueeze(1)
-    x1 = col.clone() - w
-    y1 = col.clone() - h
-    x2 = col.clone() + w
-    y2 = col.clone() + h
-    position = cat([x1, y1, x2, y2], dim=-1)
-    w = w[:, :, Y1:Y2, X1:X2]
-    h = h[:, :, Y1:Y2, X1:X2]
-    position = position.reshape(-1, 4)
-    target = target.expand(position.shape)
-    iou_score = complete_box_iou_loss(position, target)
-    score = score + iou_score.mean()
-    cls_target = zeros(B, H, W, device=label.device, dtype=tlong)
-    cls_target[:, Y1:Y2, X1:X2] = label[-1].long()
-    cls = scores[:, 3:, :, :]
-    score = score + cross_entropy(cls, cls_target)    
-    return score
+def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
+    """_summary_
+    Args:
+        boxes (Tensor): [N, num_classes] []
+        label (Tensor): [1, 1, 5] [x1, y1, x2, y2, cls]
 
+    Returns:
+        Tensor: 
+    """
+    N = cls.shape[0]
+    cls_target = label[:,:, -1:].long().reshape(-1)
+    loss = cross_entropy(cls, cls_target, reduction="mean")
+    return loss
+    
 class Model:
     def __init__(self, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
+        self.cls = Classfication.Classification(boundary_channels=1, color_channels=32, num_classes=100, device=device)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.device = device
-    def train(self, x: Dataset, loss: Callable[[list[Tensor], Tensor], Tensor]):
+    def train(self, x: Dataset):
         size = x.getTrainSize()
         start = time()
         for epoch in range(50):
@@ -166,8 +141,10 @@ class Model:
                 label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
                 if (label.shape[1] == 0):
                   continue
-                out: list[Tensor] = self.model(tens)
-                lss = loss(out,label)
+                mask, color, out = self.model(tens)
+                boxes = label[:, :, 1:].squeeze(0)
+                cls = self.cls(mask, color, boxes)
+                lss = MyBBLoss(out,label) + ClsLoss(cls, label)
                 self.opt.zero_grad()
                 lss.backward()
                 self.opt.step()

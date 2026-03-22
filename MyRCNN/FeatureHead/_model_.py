@@ -25,58 +25,13 @@ class BoundingBoxRegression(Module):
         score: Tensor = self.score(x)
         return cat([score, wh], dim=1)
        
-class Classification(Module):
-    # 900 x 900 input
-    def __init__(self, boundary_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
-        super().__init__()
-        self.boundary_score = Sequential(
-            Conv2d(in_channels=boundary_channels, out_channels=32, kernel_size=3, stride=3, device=device), # 300x300
-            LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=8, kernel_size=1, device=device), # 300x300
-            Conv2d(in_channels=8, out_channels=32, kernel_size=3, stride=3, device=device), # 100x100
-            LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=8, kernel_size=1, device=device), # 100x100
-            Conv2d(in_channels=8, out_channels=32, kernel_size=4, stride=4, device=device), # 25x25
-            LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=8, kernel_size=1, device=device), # 25x25
-            Conv2d(in_channels=8, out_channels=32, kernel_size=5, stride=5, device=device), # 5x5
-            LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=16, kernel_size=1, device=device), # 5x5
-        )
-        self.color_score = Sequential(
-            Conv2d(in_channels=color_channels, out_channels=color_channels*2, kernel_size=1, device=device),
-            LeakyReLU(),
-            Conv2d(in_channels=color_channels*2, out_channels=4, kernel_size=1, device=device),
-            Conv2d(in_channels=4, out_channels=8, kernel_size=9, stride=9, device=device), # 900x900
-            LeakyReLU(),
-            Conv2d(in_channels=8, out_channels=4, kernel_size=1, device=device), # 100x100
-            Conv2d(in_channels=4, out_channels=8, kernel_size=4, stride=4, device=device), # 25x25
-            LeakyReLU(),
-            Conv2d(in_channels=8, out_channels=4, kernel_size=1, device=device), # 25x25
-            Conv2d(in_channels=4, out_channels=8, kernel_size=5, stride=5, device=device), # 5x5
-            LeakyReLU(),
-            Conv2d(in_channels=8, out_channels=4, kernel_size=1, device=device), # 5x5
-            
-        )
-        self.cls = Sequential(
-            Conv2d(in_channels=20, out_channels=30, kernel_size=1, device=device), # 5x5
-            LeakyReLU(),
-            Conv2d(in_channels=30, out_channels=num_classes, kernel_size=5, device=device), # 5x5
-        )
-        
-    def forward(self, mask: Tensor, color: Tensor):
-        mask = self.boundary_score(mask)
-        color = self.color_score(color)
-        combine = cat([mask, color], dim=1)
-        cls = self.cls(combine)
-        return cls
         
 
 class FeatureHead(Module):
     def __init__(self, mask_channels: int, half_color_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
         self.bbx = BoundingBoxRegression(half_color_channels=half_color_channels, device=device)
-        self.cls = Classification(boundary_channels=mask_channels, color_channels=half_color_channels*2, num_classes=num_classes, device=device)
+        # self.cls = Classification(boundary_channels=mask_channels, color_channels=half_color_channels*2, num_classes=num_classes, device=device)
         self.num_classes = num_classes
         
     def forward(self, mask: Tensor, color: Tensor) -> list[Tensor]:
@@ -89,12 +44,6 @@ class FeatureHead(Module):
         score_flat = sigmoid(bbx_flat[:,:,0:1])
         w = bbx_flat[:,:,1:2]
         h = bbx_flat[:,:,2:3]
-
-        # topk_idx = topk(score_flat,10,dim=1).indices
-
-        # mask = zeros_like(score_flat,dtype=tbool)
-        # mask = mask.scatter(1,topk_idx,True)
-        # mask = mask & (score_flat>0.6)
         mask = (score_flat>0.8)
 
         cx = x = x[mask]
@@ -120,13 +69,4 @@ class FeatureHead(Module):
         
         
         out = stack([s,x1,y1,x2,y2],dim=-1).unsqueeze(0)
-        # boxes= out[:, 1:] # [N, x1, y1, x2, y2]
-        # boxes = nms(boxes, 0.6)
-        # N = boxes.shape[0]
-        # boxes = cat([zeros(N, 1), boxes], dim=-1)
-        # output_size = (400, 400)
-        # mask_crop: Tensor = roi_align(mask, boxes, output_size)
-        # color_crop: Tensor = roi_align(color, boxes, output_size)
-        # cls = self.cls(mask_crop, color_crop)
-        # out = cat([out, cls], dim=-1)
         return [score, out]

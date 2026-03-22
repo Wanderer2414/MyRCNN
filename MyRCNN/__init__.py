@@ -1,3 +1,3 @@
-from ._model_ import MyRCNN, MyLoss, Model, MyBBLoss
+from ._model_ import MyRCNN, Model, MyBBLoss
 
-__all__ = ["MyRCNN", "MyLoss", "Model", "MyBBLoss"]
+__all__ = ["MyRCNN", "Model", "MyBBLoss"]
