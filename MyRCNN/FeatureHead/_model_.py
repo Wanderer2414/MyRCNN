@@ -9,7 +9,7 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=1, bias=False, device=device),
+            Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
             
         )
         self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,5), stride=1, padding=(0,2), bias=False, groups=half_color_channels,device=device)
@@ -110,12 +110,12 @@ class FeatureHead(Module):
         w = bbx_flat[:,:,1:2]
         h = bbx_flat[:,:,2:3]
 
-        topk_idx = topk(score_flat,10,dim=1).indices
+        # topk_idx = topk(score_flat,10,dim=1).indices
 
-        mask = zeros_like(score_flat,dtype=tbool)
-        mask = mask.scatter(1,topk_idx,True)
-        mask = mask & (score_flat>0.6)
-        mask = mask | (score_flat>0.8)
+        # mask = zeros_like(score_flat,dtype=tbool)
+        # mask = mask.scatter(1,topk_idx,True)
+        # mask = mask & (score_flat>0.6)
+        mask = (score_flat>0.9)
 
         cx = x = x[mask]
         cy = y = y[mask]
