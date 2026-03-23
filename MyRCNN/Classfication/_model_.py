@@ -6,18 +6,22 @@ class Classification(Module):
     def __init__(self, boundary_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
         self.boundary_score = Sequential(
-            Conv2d(in_channels=boundary_channels, out_channels=32, kernel_size=3, stride=3, device=device), # 100x100
+            Conv2d(in_channels=boundary_channels, out_channels=32, kernel_size=1, bias=False, device=device), # 100x100
+            Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=3, bias=False, groups=32, device=device), # 100x100
             LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=8, kernel_size=1, device=device), # 100x100
-            Conv2d(in_channels=8, out_channels=32, kernel_size=2, stride=2, device=device), # 50x50
+            Conv2d(in_channels=32, out_channels=8, kernel_size=1, bias=False, device=device), # 100x100
+            Conv2d(in_channels=8, out_channels=32, kernel_size=1, bias=False, device=device), # 50x50
+            Conv2d(in_channels=32, out_channels=32, kernel_size=2, stride=2, bias=False, groups=32, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=8, kernel_size=1, device=device), # 50x50
-            Conv2d(in_channels=8, out_channels=32, kernel_size=5, stride=5, device=device), # 10x10
+            Conv2d(in_channels=32, out_channels=8, kernel_size=1, bias=False, device=device), # 50x50
+            Conv2d(in_channels=8, out_channels=32, kernel_size=1, bias=False, device=device), 
+            Conv2d(in_channels=32, out_channels=32, kernel_size=5, stride=5, bias=False, groups=32, device=device), # 10x10
             LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=8, kernel_size=1, device=device), # 10x10
-            Conv2d(in_channels=8, out_channels=32, kernel_size=2, stride=2, device=device), # 5x5
+            Conv2d(in_channels=32, out_channels=8, kernel_size=1, bias=False, device=device), # 10x10
+            Conv2d(in_channels=8, out_channels=32, kernel_size=1, bias=False, device=device), 
+            Conv2d(in_channels=32, out_channels=32, kernel_size=2, stride=2, bias=False, groups=32, device=device), # 5x5
             LeakyReLU(),
-            Conv2d(in_channels=32, out_channels=16, kernel_size=1, device=device), # 5x5
+            Conv2d(in_channels=32, out_channels=16, kernel_size=1, bias=False, device=device), # 5x5
             Conv2d(in_channels=16, out_channels=num_classes, kernel_size=5, device=device)
         )
         # self.color_score = Sequential(

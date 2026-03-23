@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
-from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like
+from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
 from torchvision.ops import complete_box_iou_loss
 from torch.optim import Adam
@@ -8,6 +8,7 @@ from typing import Callable
 from time import time
 from display import show_progress_counter
 from . import ColorHead, MaskHead, FeatureHead, Classfication
+import os
 class MyRCNN(Module):
     def __init__(self, channels: int, device: device = device("cpu"))->None:
         super().__init__()
@@ -124,15 +125,42 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     cls_target = label[:,:, -1:].long().reshape(-1)
     loss = cross_entropy(cls, cls_target, reduction="mean")
     return loss
-    
 class Model:
     def __init__(self, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
         self.cls = Classfication.Classification(boundary_channels=1, color_channels=32, num_classes=100, device=device)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
+        self.opt2 = Adam(self.cls.parameters(), lr=1e-4)
         self.device = device
     def train(self, x: Dataset):
         size = x.getTrainSize()
+        start = time()
+        if (os.path.exists("bbx.pth")):
+            self.model.load_state_dict(load("bbx.pth", map_location=self.device))
+            print("Load model!")
+        else:
+            for epoch in range(50):
+                sloss = 0
+                for i in range(30):
+                    tens:Tensor = x.getTrainTensor(i).to(self.device)
+                    label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
+                    if (label.shape[1] == 0):
+                      continue
+                    mask, color, out = self.model(tens)
+                    boxes = label[:, :, 1:].squeeze(0)
+                    cls = self.cls(mask, color, boxes)
+                    lss = MyBBLoss(out,label)
+                    self.opt.zero_grad()
+                    lss.backward()
+                    self.opt.step()
+                    # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+                    sloss += lss
+                    if ((i+1) % (size//5) == 0):
+                        print(f"Saved: {(i+1)} / {size//5} progress")
+                        save(self.model.state_dict(), "bbx.pth")
+                show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
+                save(self.model.state_dict(), "bbx.pth")
+            
         start = time()
         for epoch in range(50):
             sloss = 0
@@ -144,14 +172,14 @@ class Model:
                 mask, color, out = self.model(tens)
                 boxes = label[:, :, 1:].squeeze(0)
                 cls = self.cls(mask, color, boxes)
-                lss = MyBBLoss(out,label) + ClsLoss(cls, label)
-                self.opt.zero_grad()
+                lss = ClsLoss(cls, label)
+                self.opt2.zero_grad()
                 lss.backward()
-                self.opt.step()
+                self.opt2.step()
                 # show_progress_counter(i+1, size, start, f"Loss: {lss}")
                 sloss += lss
                 if ((i+1) % (size//5) == 0):
                     print(f"Saved: {(i+1)} / {size//5} progress")
-                    save(self.model.state_dict(), "model.pth")
+                    save(self.cls.state_dict(), "cls.pth")
             show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
-            save(self.model.state_dict(), "model.pth")
+            save(self.cls.state_dict(), "cls.pth")
