@@ -37,7 +37,7 @@ class ColorHead(Module):
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
     def forward(self, x:Tensor) -> Tensor:
-        x = (((x*255)/16).round()*16).clamp(max=255)
+        x = (((x*255)/16).round()*16)/256
         x = mode_pool2d(x, kernel_size=11, stride=1, padding=5)
         B, C, H, W = x.shape
         downgrade: Tensor = self.prepare(x)

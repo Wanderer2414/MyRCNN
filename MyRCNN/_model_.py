@@ -122,7 +122,9 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
         Tensor: 
     """
     N = cls.shape[0]
-    cls_target = label[:,:, -1:].long().reshape(-1)
+    cls_label = label[0, 0, -1].long()
+    cls_target = zeros_like(cls, device=cls.device)
+    cls_target[:, cls_label] = 1
     loss = cross_entropy(cls, cls_target, reduction="mean")
     return loss
 class Model:
@@ -135,7 +137,7 @@ class Model:
     def train(self, x: Dataset):
         size = x.getTrainSize()
         start = time()
-        if (os.path.exists("bbx.pth")):
+        if (os.path.exists("bbx.pth") and False):
             self.model.load_state_dict(load("bbx.pth", map_location=self.device))
             print("Load model!")
         else:
@@ -161,25 +163,25 @@ class Model:
                 show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
                 save(self.model.state_dict(), "bbx.pth")
             
-        start = time()
-        for epoch in range(50):
-            sloss = 0
-            for i in range(30):
-                tens:Tensor = x.getTrainTensor(i).to(self.device)
-                label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
-                if (label.shape[1] == 0):
-                  continue
-                mask, color, out = self.model(tens)
-                boxes = label[:, :, 1:].squeeze(0)
-                cls = self.cls(mask, color, boxes)
-                lss = ClsLoss(cls, label)
-                self.opt2.zero_grad()
-                lss.backward()
-                self.opt2.step()
+        # start = time()
+        # for epoch in range(50):
+        #     sloss = 0
+        #     for i in range(30):
+        #         tens:Tensor = x.getTrainTensor(i).to(self.device)
+        #         label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
+        #         if (label.shape[1] == 0):
+        #           continue
+        #         mask, color, out = self.model(tens)
+        #         boxes = label[:, :, 1:].squeeze(0)
+                # cls = self.cls(mask, color, boxes)
+                # lss = ClsLoss(cls, label)
+                # self.opt2.zero_grad()
+                # lss.backward()
+                # self.opt2.step()
                 # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                sloss += lss
-                if ((i+1) % (size//5) == 0):
-                    print(f"Saved: {(i+1)} / {size//5} progress")
-                    save(self.cls.state_dict(), "cls.pth")
-            show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
-            save(self.cls.state_dict(), "cls.pth")
+                # sloss += lss
+            #     if ((i+1) % (size//5) == 0):
+            #         print(f"Saved: {(i+1)} / {size//5} progress")
+            #         save(self.cls.state_dict(), "cls.pth")
+            # show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
+            # save(self.cls.state_dict(), "cls.pth")
