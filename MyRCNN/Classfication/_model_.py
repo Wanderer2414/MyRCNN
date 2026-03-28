@@ -15,20 +15,24 @@ class Classification(Module):
         self.prepare_color = Conv2d(in_channels=color_channels, out_channels=8, kernel_size=1, bias=False, device=device)
         self.channels = boundary_channels + color_channels
         self.cls = Sequential(
-            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device), # 400x400
-            Conv2d(in_channels=40, out_channels=40, kernel_size=2, stride=2, bias=False, groups=40, device=device), # 200x200
+            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 400x400
+            Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 200x200
+            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device), # 200x200
             BatchNorm2d(40, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device), # 200x200
-            Conv2d(in_channels=40, out_channels=40, kernel_size=2, stride=2, bias=False, groups=40, device=device), # 100x100
+            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device),
+            Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 100x100
+            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
             BatchNorm2d(40, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device), # 100x100
-            Conv2d(in_channels=40, out_channels=40, kernel_size=4, stride=4, bias=False, groups=40, device=device), # 20x20
+            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 100x100
+            Conv2d(in_channels=20, out_channels=20, kernel_size=4, stride=4, bias=False, groups=20, device=device), # 25x25
+            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
             BatchNorm2d(40, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device), # 20x20
-            Conv2d(in_channels=40, out_channels=40, kernel_size=4, stride=4, bias=False, groups=40, device=device), # 5x5
+            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 20x20
+            Conv2d(in_channels=20, out_channels=20, kernel_size=5, stride=5, bias=False, groups=20, device=device), # 5x5
+            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
             BatchNorm2d(40, device=device),
             LeakyReLU(),
             Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device),
@@ -50,5 +54,5 @@ class Classification(Module):
         colors: Tensor = roi_align(color, [boxes], output_size)
         
         mix = cat([self.prepare_boundary(maskes), self.prepare_color(colors)], dim=1)
-        cls = self.cls(mix)
-        return cls.squeeze(-2).squeeze(-1)
+        cls: Tensor = self.cls(mix)
+        return cls.squeeze(-1).squeeze(-1)

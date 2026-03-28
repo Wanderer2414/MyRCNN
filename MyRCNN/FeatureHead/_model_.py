@@ -9,8 +9,8 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
+            Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, device=device),
             Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
-            
         )
         self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,11), stride=1, padding=(0,5),groups=half_color_channels,device=device)
         self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(11,1), stride=1, padding=(5, 0),groups=half_color_channels, device=device)
@@ -19,8 +19,8 @@ class BoundingBoxRegression(Module):
         B, C, H, W = x.shape
         w = self.width(wh[:, 0::2, :, :]).max(dim=1, keepdim=True).values
         h = self.height(wh[:, 1::2, :, :]).max(dim=1, keepdim=True).values
-        w = sigmoid(w)*W/2
-        h = sigmoid(h)*H/2
+        w = (sigmoid(w)-0.5)*W
+        h = (sigmoid(h)-0.5)*H
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
         return cat([score, wh], dim=1)

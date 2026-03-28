@@ -123,8 +123,7 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     """
     N = cls.shape[0]
     cls_label = label[0, 0, -1].long()
-    cls_target = zeros_like(cls, device=cls.device)
-    cls_target[:, cls_label] = 1
+    cls_target = cls_label.expand(N)
     loss = cross_entropy(cls, cls_target, reduction="mean")
     return loss
 class Model:
@@ -173,15 +172,15 @@ class Model:
         #           continue
         #         mask, color, out = self.model(tens)
         #         boxes = label[:, :, 1:].squeeze(0)
-                # cls = self.cls(mask, color, boxes)
-                # lss = ClsLoss(cls, label)
-                # self.opt2.zero_grad()
-                # lss.backward()
-                # self.opt2.step()
-                # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                # sloss += lss
-            #     if ((i+1) % (size//5) == 0):
-            #         print(f"Saved: {(i+1)} / {size//5} progress")
-            #         save(self.cls.state_dict(), "cls.pth")
-            # show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
-            # save(self.cls.state_dict(), "cls.pth")
+        #         cls = self.cls(mask, color, boxes)
+        #         lss = ClsLoss(cls, label)
+        #         self.opt2.zero_grad()
+        #         lss.backward()
+        #         self.opt2.step()
+        #         show_progress_counter(i+1, size, start, f"Loss: {lss}")
+        #         sloss += lss
+        #         if ((i+1) % (size//5) == 0):
+        #             print(f"Saved: {(i+1)} / {size//5} progress")
+        #             save(self.cls.state_dict(), "cls.pth")
+        #     show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
+        #     save(self.cls.state_dict(), "cls.pth")
