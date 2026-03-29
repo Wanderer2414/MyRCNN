@@ -44,22 +44,22 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     target = 1-target/target.max()
     score =  binary_cross_entropy_with_logits(pred_box, target)
     
-    boxes = scores[1][:, :, 1:].squeeze(0)
-    cx = (boxes[:, 0:1] + boxes[:, 2:3])/2
-    cy = (boxes[:, 1:2] + boxes[:, 3:4])/2
-    X1k = (2*X1 + X2)/3
-    X2k = (X1 + 2*X2)/3
-    Y1k = (2*Y1 + Y2)/3
-    Y2k = (Y1 + 2*Y2)/3
+    # boxes = scores[1][:, :, 1:].squeeze(0)
+    # cx = (boxes[:, 0:1] + boxes[:, 2:3])/2
+    # cy = (boxes[:, 1:2] + boxes[:, 3:4])/2
+    # X1k = (2*X1 + X2)/3
+    # X2k = (X1 + 2*X2)/3
+    # Y1k = (2*Y1 + Y2)/3
+    # Y2k = (Y1 + 2*Y2)/3
     
-    indices = (cx>X1k) & (cx<X2k) & (cy>Y1k) & (cy<Y2k)
-    indices = indices.repeat(1, 4)
-    boxes = boxes[indices].reshape(-1, 4)
-    N = boxes.shape[0]
-    if (N>0):
-        boxes_gt = label[0:4].unsqueeze(0).repeat(N, 1)
-        FIoULoss = FIoU(boxes, boxes_gt).mean()
-        return score + FIoULoss
+    # indices = (cx>X1k) & (cx<X2k) & (cy>Y1k) & (cy<Y2k)
+    # indices = indices.repeat(1, 4)
+    # boxes = boxes[indices].reshape(-1, 4)
+    # N = boxes.shape[0]
+    # if (N>0):
+    #     boxes_gt = label[0:4].unsqueeze(0).repeat(N, 1)
+    #     FIoULoss = FIoU(boxes, boxes_gt).mean()
+    #     return score + FIoULoss
     return score
 def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
     """Summary
