@@ -9,7 +9,6 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, device=device),
             Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
         )
         self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,11), stride=1, padding=(0,5),groups=half_color_channels,device=device)
