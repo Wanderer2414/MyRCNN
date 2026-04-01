@@ -35,7 +35,13 @@ class SharedConv(Module):
     def forward(self, x: Tensor) -> Tensor:
         kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, self.kernel_size)
         return conv2d(x, weight=kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
-
+class ChannelNormalize(Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, x: Tensor) -> Tensor:
+        B, C, H, W = x.shape
+        M = x.max(dim=1, keepdim=True).values.detach().expand(B, C, H, W)
+        return x/M
 class EmphaseLocal(Module):
     def __init__(self, kernel_size:int, device: device = device("cpu")) -> None:
         super().__init__()
@@ -53,15 +59,16 @@ class BoundingBoxRegression(Module):
         )
         self.score = Sequential(
             BatchNorm2d(half_color_channels*2, device=device),
+            ChannelNormalize(),
+            MaxLeakyReLU(scale=0.1, threshold=0.05),
+            AvgPool2d(kernel_size=5, padding=2, stride=1),
+            BatchNorm2d(half_color_channels*2, device=device),
+            MaxLeakyReLU(scale=0.1, threshold=0.05),
+            AvgPool2d(kernel_size=5, padding=2, stride=1),
+            BatchNorm2d(half_color_channels*2, device=device),
             MaxLeakyReLU(scale=0.01, threshold=0),
             Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, device=device),
             MaxChannelReLU(),
-            # BatchNorm2d(1, affine=False, device=device),
-            # MaxLeakyReLU(threshold=0.1, scale=0.1),
-            # EmphaseLocal(channels=1, kernel_size=11, device=device),
-            # MaxLeakyReLU(threshold=0.1, scale=0.1)
-            # BatchNorm2d(1, device=device)
-            # Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
         )
         self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,11), stride=1, padding=(0,5),groups=half_color_channels,device=device)
         self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(11,1), stride=1, padding=(5, 0),groups=half_color_channels, device=device)
