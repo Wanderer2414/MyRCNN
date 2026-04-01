@@ -14,23 +14,25 @@ def mode_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
     return median.view(B, C, H_out, W_out)
 
 class SharedConv(Module):
-    def __init__(self, channels:int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(channels, 1, kernel_size, kernel_size))
+        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(1, 1, kernel_size, kernel_size))
         self.stride = stride
         self.padding = padding
         if (bias):
             self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
         else:
             self.bias = 0
+        self.kernel_size = kernel_size
     def forward(self, x: Tensor) -> Tensor:
-        return conv2d(x, weight=self.kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
+        kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, self.kernel_size)
+        return conv2d(x, weight=kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
 class EmphaseLocal(Module):
-    def __init__(self, channels:int, kernel_size:int, device: device = device("cpu")) -> None:
+    def __init__(self, kernel_size:int, device: device = device("cpu")) -> None:
         super().__init__()
         self.kernel_size = kernel_size
         self.device = device
-        self.conv = SharedConv(channels, kernel_size=kernel_size, padding=kernel_size//2, bias=True, device=device)
+        self.conv = SharedConv(kernel_size, padding=kernel_size//2, bias=True, device=device)
         
     def forward(self, x:Tensor) -> Tensor:
         score = sigmoid(self.conv(x))
@@ -65,27 +67,23 @@ class ColorHead(Module):
         )
         self.downgrade = Sequential(
             # Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=3, stride=3, padding=1, bias=False, device=device)
-            SharedConv(channels=half_out_channels, kernel_size=3, stride=3, padding=1, device=device)
+            SharedConv(kernel_size=3, stride=3, padding=1, device=device)
         )
         self.width = Sequential(
-            SharedConv(channels=half_out_channels, kernel_size=1, device=device),
+            SharedConv(kernel_size=5, padding=2, device=device),
             BatchNorm2d(half_out_channels, device=device),
             LeakyReLU(inplace=True)
         )
         self.height = Sequential(
-            SharedConv(channels=half_out_channels, kernel_size=1, device=device),
+            SharedConv(kernel_size=5, padding=2, device=device),
             BatchNorm2d(half_out_channels, device=device),
             LeakyReLU(inplace=True)
         )
         self.ft = Sequential(
-            BatchNorm2d(half_out_channels*2, affine=False, device=device),
-            MaxLeakyReLU(scale=0.1, threshold=0.05),
-            BatchNorm2d(half_out_channels*2, affine=False, device=device),
-            EmphaseLocal(channels=half_out_channels*2, kernel_size=11, device=device)
-        )
-        self.lastft = Sequential(
-            BatchNorm2d(half_out_channels*2, affine=False, device=device),
-            MaxLeakyReLU(scale=0.1, threshold=0.01)
+            BatchNorm2d(half_out_channels*2, device=device),
+            MaxLeakyReLU(scale=0.7, threshold=0.1),
+            BatchNorm2d(half_out_channels*2, device=device),
+            EmphaseLocal(kernel_size=11, device=device)
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
@@ -106,5 +104,4 @@ class ColorHead(Module):
         score = self.ft(score)
         score = self.ft(score)
         score = self.ft(score)
-        score = self.lastft(score)
         return score

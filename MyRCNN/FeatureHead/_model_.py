@@ -22,24 +22,25 @@ class MaxLeakyReLU(Module):
         return where(score>=M, x, self.scale*x)
 
 class SharedConv(Module):
-    def __init__(self, channels:int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(channels, 1, kernel_size, kernel_size))
+        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(1, 1, kernel_size, kernel_size))
         self.stride = stride
         self.padding = padding
         if (bias):
             self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
         else:
             self.bias = 0
+        self.kernel_size = kernel_size
     def forward(self, x: Tensor) -> Tensor:
-        return conv2d(x, weight=self.kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
+        kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, self.kernel_size)
+        return conv2d(x, weight=kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
 
 class EmphaseLocal(Module):
-    def __init__(self, channels:int, kernel_size:int, device: device = device("cpu")) -> None:
+    def __init__(self, kernel_size:int, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel_size = kernel_size
         self.device = device
-        self.conv = SharedConv(channels, kernel_size=kernel_size, padding=kernel_size//2, bias=True, device=device)
+        self.conv = SharedConv(kernel_size, padding=kernel_size//2, bias=True, device=device)
         
     def forward(self, x:Tensor) -> Tensor:
         score = sigmoid(self.conv(x))
@@ -51,6 +52,8 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
+            BatchNorm2d(half_color_channels*2, device=device),
+            MaxLeakyReLU(scale=0.01, threshold=0),
             Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, device=device),
             MaxChannelReLU(),
             # BatchNorm2d(1, affine=False, device=device),
