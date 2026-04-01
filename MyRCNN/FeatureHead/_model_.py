@@ -2,8 +2,48 @@ from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgP
 from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
 from torchvision.ops import roi_align
-# class MaxChannelReLU(Module):
-#     def __init__(self):
+class MaxChannelReLU(Module):
+    def __init__(self, scale: float = 0.01):
+        super().__init__()
+        self.scale = scale
+    def forward(self, x:Tensor) -> Tensor:
+        return x.mean(dim=1, keepdim=True)*self.scale + (1-self.scale)*x.max(dim=1, keepdim=True).values
+    
+class MaxLeakyReLU(Module):
+    def __init__(self, threshold: float = 0.1, scale: float = 0.01):
+        super().__init__()
+        self.threshold = threshold
+        self.scale = scale
+    def forward(self, x:Tensor) -> Tensor:
+        B, C, H, W = x.shape
+        score = sigmoid(x)
+        M = score.max(dim=-1, keepdim=True).values.max(dim=-2, keepdim=True).values - self.threshold
+        M = M.expand(B, C, H, W)
+        return where(score>=M, x, self.scale*x)
+
+class SharedConv(Module):
+    def __init__(self, channels:int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+        super().__init__()
+        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(channels, 1, kernel_size, kernel_size))
+        self.stride = stride
+        self.padding = padding
+        if (bias):
+            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
+        else:
+            self.bias = 0
+    def forward(self, x: Tensor) -> Tensor:
+        return conv2d(x, weight=self.kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
+
+class EmphaseLocal(Module):
+    def __init__(self, channels:int, kernel_size:int, device: device = device("cpu")) -> None:
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.device = device
+        self.conv = SharedConv(channels, kernel_size=kernel_size, padding=kernel_size//2, bias=True, device=device)
+        
+    def forward(self, x:Tensor) -> Tensor:
+        score = sigmoid(self.conv(x))
+        return x*score
 class BoundingBoxRegression(Module):
     def __init__(self, half_color_channels: int, device: device = device("cpu")):
         super().__init__()
@@ -11,8 +51,14 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            # Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=5, padding=2, device=device),
-            Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
+            Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, device=device),
+            MaxChannelReLU(),
+            # BatchNorm2d(1, affine=False, device=device),
+            # MaxLeakyReLU(threshold=0.1, scale=0.1),
+            # EmphaseLocal(channels=1, kernel_size=11, device=device),
+            # MaxLeakyReLU(threshold=0.1, scale=0.1)
+            # BatchNorm2d(1, device=device)
+            # Conv2d(in_channels=half_color_channels*2, out_channels=1, kernel_size=5, stride=1, padding=2, bias=False, device=device),
         )
         self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,11), stride=1, padding=(0,5),groups=half_color_channels,device=device)
         self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(11,1), stride=1, padding=(5, 0),groups=half_color_channels, device=device)

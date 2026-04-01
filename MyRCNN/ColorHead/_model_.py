@@ -35,14 +35,27 @@ class EmphaseLocal(Module):
     def forward(self, x:Tensor) -> Tensor:
         score = sigmoid(self.conv(x))
         return x*score
+class MaxLeakyReLU(Module):
+    def __init__(self, threshold: float = 0.1, scale: float = 0.01):
+        super().__init__()
+        self.threshold = threshold
+        self.scale = scale
+    def forward(self, x:Tensor) -> Tensor:
+        B, C, H, W = x.shape
+        score = sigmoid(x)
+        M = score.max(dim=-1, keepdim=True).values.max(dim=-2, keepdim=True).values - self.threshold
+        M = M.expand(B, C, H, W)
+        return where(score>=M, x, self.scale*x)
+        
         
 class ColorHead(Module):
     def __init__(self, in_channels: int, half_out_channels: int, device: device = device("cpu")) -> None:
         super().__init__()
         self.prepare = Sequential(
-            Conv2d(in_channels=in_channels, out_channels=in_channels*2, kernel_size=1, device=device),
+            Conv2d(in_channels=in_channels, out_channels=half_out_channels*2, kernel_size=1, device=device),
+            BatchNorm2d(half_out_channels*2, device=device),
             LeakyReLU(inplace=True),
-            Conv2d(in_channels=in_channels*2, out_channels=half_out_channels, kernel_size=1, device=device),
+            Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels, kernel_size=1, device=device),
             BatchNorm2d(num_features=half_out_channels, device=device),
             LeakyReLU(inplace=True),
             Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=1, device=device),
@@ -65,8 +78,14 @@ class ColorHead(Module):
             LeakyReLU(inplace=True)
         )
         self.ft = Sequential(
-            BatchNorm2d(half_out_channels*2, device=device),
+            BatchNorm2d(half_out_channels*2, affine=False, device=device),
+            MaxLeakyReLU(scale=0.1, threshold=0.05),
+            BatchNorm2d(half_out_channels*2, affine=False, device=device),
             EmphaseLocal(channels=half_out_channels*2, kernel_size=11, device=device)
+        )
+        self.lastft = Sequential(
+            BatchNorm2d(half_out_channels*2, affine=False, device=device),
+            MaxLeakyReLU(scale=0.1, threshold=0.01)
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
@@ -87,5 +106,5 @@ class ColorHead(Module):
         score = self.ft(score)
         score = self.ft(score)
         score = self.ft(score)
-        score = self.ft(score)
+        score = self.lastft(score)
         return score
