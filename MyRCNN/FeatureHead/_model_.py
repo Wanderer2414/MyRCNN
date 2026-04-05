@@ -35,6 +35,38 @@ class SharedConv(Module):
     def forward(self, x: Tensor) -> Tensor:
         kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, self.kernel_size)
         return conv2d(x, weight=kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
+    
+
+class WidthConv(Module):
+    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+        super().__init__()
+        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(1, 1, 1, kernel_size))
+        self.stride = stride
+        self.padding = padding
+        if (bias):
+            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
+        else:
+            self.bias = 0
+        self.kernel_size = kernel_size
+    def forward(self, x: Tensor) -> Tensor:
+        kernel = self.kernel.expand(x.shape[1], 1, 1, self.kernel_size)
+        return conv2d(x, weight=kernel, stride=(1, self.stride), padding=(0, self.padding), groups=x.shape[1]) + self.bias
+    
+
+class HeightConv(Module):
+    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+        super().__init__()
+        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(1, 1, kernel_size, 1))
+        self.stride = stride
+        self.padding = padding
+        if (bias):
+            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
+        else:
+            self.bias = 0
+        self.kernel_size = kernel_size
+    def forward(self, x: Tensor) -> Tensor:
+        kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, 1)
+        return conv2d(x, weight=kernel, stride=(self.stride, 1), padding=(self.padding, 0), groups=x.shape[1]) + self.bias
 class ChannelNormalize(Module):
     def __init__(self):
         super().__init__()
@@ -69,20 +101,17 @@ class BoundingBoxRegression(Module):
             MaxLeakyReLU(scale=0.01, threshold=0),
             Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, device=device),
             MaxChannelReLU(),
+            Sigmoid()
         )
-        self.local_score = Sequential(
-            Sigmoid(),
-            SharedConv(kernel_size=5, padding=2, stride=1, device=device)
-        )
-        self.width = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(1,11), stride=1, padding=(0,5),groups=half_color_channels,device=device)
-        self.height = Conv2d(in_channels=half_color_channels, out_channels=half_color_channels, kernel_size=(11,1), stride=1, padding=(5, 0),groups=half_color_channels, device=device)
+        self.width = WidthConv(kernel_size=11, stride=1, padding=5, device=device)
+        self.height = HeightConv(kernel_size=11, stride=1, padding=5, device=device)
     def forward(self, x: Tensor):
         wh: Tensor = self.bbx(x)
         B, C, H, W = x.shape
         w = self.width(wh[:, 0::2, :, :]).max(dim=1, keepdim=True).values
         h = self.height(wh[:, 1::2, :, :]).max(dim=1, keepdim=True).values
-        w = (sigmoid(w)-0.5)*W
-        h = (sigmoid(h)-0.5)*H
+        # w = (sigmoid(w)-0.5)*W
+        # h = (sigmoid(h)-0.5)*H
         wh = cat([w,h], dim=1)
         score: Tensor = self.score(x)
         return cat([score, wh], dim=1)
@@ -103,10 +132,10 @@ class FeatureHead(Module):
         y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
         x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
         bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
-        score_flat = sigmoid(bbx_flat[:,:,0:1])
+        score_flat = bbx_flat[:,:,0:1]
         w = bbx_flat[:,:,1:2]
         h = bbx_flat[:,:,2:3]
-        mask = (score_flat>0.8)
+        mask = (score_flat>0.8) & (w>0) & (h>0)
 
         cx = x = x[mask]
         cy = y = y[mask]
