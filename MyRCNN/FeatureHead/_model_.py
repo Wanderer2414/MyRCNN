@@ -90,16 +90,14 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.score = Sequential(
-            BatchNorm2d(half_color_channels*2, device=device),
+            # BatchNorm2d(half_color_channels*2, device=device),
             ChannelNormalize(),
-            MaxLeakyReLU(scale=0.1, threshold=0.05),
-            AvgPool2d(kernel_size=11, padding=5, stride=1),
-            BatchNorm2d(half_color_channels*2, device=device),
-            MaxLeakyReLU(scale=0.1, threshold=0.05),
-            AvgPool2d(kernel_size=11, padding=5, stride=1),
-            BatchNorm2d(half_color_channels*2, device=device),
+            AvgPool2d(kernel_size=11,stride=1, padding=5),
+            MaxLeakyReLU(scale=0.1, threshold=0.01),
+            AvgPool2d(kernel_size=11,stride=1, padding=5),
+            MaxLeakyReLU(scale=0.1, threshold=0.01),
+            AvgPool2d(kernel_size=11,stride=1, padding=5),
             MaxLeakyReLU(scale=0.01, threshold=0),
-            Conv2d(in_channels=half_color_channels*2, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, device=device),
             MaxChannelReLU(),
             Sigmoid()
         )

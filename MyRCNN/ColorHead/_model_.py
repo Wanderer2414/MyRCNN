@@ -54,10 +54,8 @@ class ColorHead(Module):
     def __init__(self, in_channels: int, half_out_channels: int, device: device = device("cpu")) -> None:
         super().__init__()
         self.prepare = Sequential(
-            Conv2d(in_channels=in_channels, out_channels=half_out_channels*2, kernel_size=1, device=device),
-            BatchNorm2d(half_out_channels*2, device=device),
-            LeakyReLU(inplace=True),
-            Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels, kernel_size=1, device=device),
+            Conv2d(in_channels=in_channels, out_channels=half_out_channels, kernel_size=1, device=device),
+            Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=1, groups=half_out_channels, device=device),
             BatchNorm2d(num_features=half_out_channels, device=device),
             LeakyReLU(inplace=True),
             Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=1, device=device),
