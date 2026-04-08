@@ -31,16 +31,6 @@ class ColorHead(Module):
             # Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=3, stride=3, padding=1, bias=False, device=device)
             SharedConv(kernel_size=3, stride=3, padding=1, device=device)
         )
-        self.width = Sequential(
-            SharedConv(kernel_size=5, padding=2, device=device),
-            BatchNorm2d(half_out_channels, device=device),
-            LeakyReLU(inplace=True)
-        )
-        self.height = Sequential(
-            SharedConv(kernel_size=5, padding=2, device=device),
-            BatchNorm2d(half_out_channels, device=device),
-            LeakyReLU(inplace=True)
-        )
         self.ft = Sequential(
             BatchNorm2d(half_out_channels*2, device=device),
             MaxLeakyReLU(scale=0.7, threshold=0.1),
@@ -75,11 +65,8 @@ class ColorHead(Module):
         for i in range(n):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
             zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
-            # width = self.width(zoomout)
-            # height = self.height(zoomout)
-            # mix = stack([width, height], dim=1).reshape(B, self.half_out_channels*2, H, W)
             score = score + self.interpolate(zoomout)
         score = self.ft(score)
         score = self.ft(score)
         score = self.ft(score)
-        return score
+        return score/n

@@ -1,6 +1,6 @@
 
 from torch.nn import Module, Parameter
-from torch import tensor, Tensor, device, float as tfloat, sigmoid, conv2d, where
+from torch import tensor, Tensor, device, float as tfloat, sigmoid, conv2d, where, amax
 class SharedConv(Module):
     def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
@@ -18,10 +18,7 @@ class SharedConv(Module):
 class EmphaseLocal(Module):
     def __init__(self, kernel_size:int, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel_size = kernel_size
-        self.device = device
         self.conv = SharedConv(kernel_size, padding=kernel_size//2, bias=True, device=device)
-        
     def forward(self, x:Tensor) -> Tensor:
         score = sigmoid(self.conv(x))
         return x*score
@@ -33,7 +30,16 @@ class MaxLeakyReLU(Module):
     def forward(self, x:Tensor) -> Tensor:
         B, C, H, W = x.shape
         score = sigmoid(x)
-        M = score.max(dim=-1, keepdim=True).values.max(dim=-2, keepdim=True).values - self.threshold
+        M = amax(score, dim=(-2, -1), keepdim=True) - self.threshold
         M = M.expand(B, C, H, W)
-        return where(score>=M, x, self.scale*x)
+        alt = x*self.scale
+        return where(score>=M, x, alt)
         
+
+class MaxChannelReLU(Module):
+    def __init__(self, scale: float = 0.01):
+        super().__init__()
+        self.scale = scale
+    def forward(self, x:Tensor) -> Tensor:
+        return x.mean(dim=1, keepdim=True)*self.scale + (1-self.scale)*x.max(dim=1, keepdim=True).values
+    

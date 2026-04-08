@@ -1,4 +1,4 @@
 from ._intergrate import Loop, Splitter, Merger, Parallel, Stack
-from ._conv import EmphaseLocal, MaxLeakyReLU, SharedConv
+from ._conv import EmphaseLocal, MaxLeakyReLU, SharedConv, MaxChannelReLU
 from ._imagef import Interpolate
-__all__ = ["Loop", "Splitter", "Merger", "EmphaseLocal", "MaxLeakyReLU", "SharedConv", "Interpolate", "Parallel", "Stack"]
+__all__ = ["Loop", "Splitter", "Merger", "EmphaseLocal", "MaxLeakyReLU", "SharedConv", "Interpolate", "Parallel", "Stack", "MaxChannelReLU"]
