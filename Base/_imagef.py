@@ -25,3 +25,16 @@ class Interpolate(Module):
                            self.align_corners, 
                            self.recompute_scale_factor, 
                            self.antialias)
+class UnSize(Module):
+    def __init__(self, module: Module, mode: str = "nearest", keepold: bool = False):
+        super().__init__()
+        self.module = module
+        self.mode = mode
+        self.keepold = keepold
+    def forward(self, x):
+        old = x
+        B, C, H, W = x.shape
+        x = self.module(x)
+        if (self.keepold):
+            return old, interpolate(x, size=(H, W), mode = self.mode)
+        return interpolate(x, size=(H, W), mode = self.mode)

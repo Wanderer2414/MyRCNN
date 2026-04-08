@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, ReLU, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter, Sequential
 from torch import Tensor, device, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
-from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, Stack
+from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, Stack, UnSize, Loop, Parallel, Merger, Select, Add
 from math import log, floor
 def mode_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
     if padding > 0:
@@ -17,40 +17,52 @@ def mode_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
 class ColorHead(Module):
     def __init__(self, in_channels: int, half_out_channels: int, device: device = device("cpu")) -> None:
         super().__init__()
-        self.prepare = Sequential(
-            Conv2d(in_channels=in_channels, out_channels=half_out_channels, kernel_size=1, device=device),
-            Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=1, groups=half_out_channels, device=device),
-            BatchNorm2d(num_features=half_out_channels, device=device),
+        def init(x: Tensor):
+            pass
+        def cond(x: tuple[Tensor, ...]) -> bool:
+            return True
+        def inc(x:Tensor):
+            pass
+        self.head = Sequential(
+            Conv2d(in_channels=in_channels, out_channels=half_out_channels*2, kernel_size=1, device=device),
+            Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels*2, kernel_size=1, groups=half_out_channels*2, device=device),
+            BatchNorm2d(num_features=half_out_channels*2, affine=False, device=device),
             LeakyReLU(inplace=True),
-            Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=1, device=device),
-            Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=1, groups=half_out_channels, device=device), #  groups
-            BatchNorm2d(num_features=half_out_channels, device=device),
-            LeakyReLU(inplace=True)
-        )
-        self.downgrade = Sequential(
-            # Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=3, stride=3, padding=1, bias=False, device=device)
-            SharedConv(kernel_size=3, stride=3, padding=1, device=device)
+            Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels*2, kernel_size=1, device=device),
+            Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels*2, kernel_size=1, groups=half_out_channels*2, device=device), #  groups
+            BatchNorm2d(num_features=half_out_channels*2, affine=False, device=device),
+            LeakyReLU(inplace=True),
+            Splitter(Module(), Module()),
+            Loop(
+                init=init,
+                condition=cond,
+                inc=inc,
+                func=
+                Sequential( 
+                    Parallel(
+                        Module(),
+                        Sequential(
+                            UnSize(SharedConv(kernel_size=3, stride=3, padding=1, device=device), "bilinear", keepold=True),
+                            Parallel(Module(), Sequential(
+                                SharedConv(kernel_size=5, padding=2, device=device),
+                                BatchNorm2d(half_out_channels*2, device=device),
+                                LeakyReLU(inplace=True)
+                            ))
+                        )
+                    ),
+                    Select([0, 2, 1]),
+                    Merger(
+                        (2, 1), Add(), Module()
+                    ),
+                )
+            ),
+            Select([0])
         )
         self.ft = Sequential(
             BatchNorm2d(half_out_channels*2, device=device),
             MaxLeakyReLU(scale=0.7, threshold=0.1),
             BatchNorm2d(half_out_channels*2, device=device),
             EmphaseLocal(kernel_size=11, device=device)
-        )
-        self.interpolate = Sequential(
-            Splitter(
-                Sequential(
-                    SharedConv(kernel_size=5, padding=2, device=device),
-                    BatchNorm2d(half_out_channels, device=device),
-                    LeakyReLU(inplace=True)
-                ),
-                Sequential(
-                    SharedConv(kernel_size=5, padding=2, device=device),
-                    BatchNorm2d(half_out_channels, device=device),
-                    LeakyReLU(inplace=True)
-                )
-            ),
-            Stack(1)
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
@@ -64,8 +76,7 @@ class ColorHead(Module):
         n = floor(log(min(downgrade.shape[2], downgrade.shape[3]), 3))
         for i in range(n):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
-            zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
-            score = score + self.interpolate(zoomout)
+            score = score + downgrade
         score = self.ft(score)
         score = self.ft(score)
         score = self.ft(score)
