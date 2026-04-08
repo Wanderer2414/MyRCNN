@@ -1,7 +1,8 @@
-from torch.nn import Module, Conv2d, ReLU, Sequential, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter
+from torch.nn import Module, Conv2d, ReLU, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter, Sequential
 from torch import Tensor, device, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
-from Base import MaxLeakyReLU, SharedConv, EmphaseLocal
+from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, Stack
+from math import log, floor
 def mode_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
     if padding > 0:
         x = pad(x, (padding, padding, padding, padding), mode="constant")
@@ -46,6 +47,21 @@ class ColorHead(Module):
             BatchNorm2d(half_out_channels*2, device=device),
             EmphaseLocal(kernel_size=11, device=device)
         )
+        self.interpolate = Sequential(
+            Splitter(
+                Sequential(
+                    SharedConv(kernel_size=5, padding=2, device=device),
+                    BatchNorm2d(half_out_channels, device=device),
+                    LeakyReLU(inplace=True)
+                ),
+                Sequential(
+                    SharedConv(kernel_size=5, padding=2, device=device),
+                    BatchNorm2d(half_out_channels, device=device),
+                    LeakyReLU(inplace=True)
+                )
+            ),
+            Stack(1)
+        )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
     def forward(self, x:Tensor) -> Tensor:
@@ -55,13 +71,14 @@ class ColorHead(Module):
         downgrade: Tensor = self.prepare(x)
         score = zeros(B, self.half_out_channels*2, H, W, device=x.device)
         # previous = downgrade
-        while (min(downgrade.shape[2], downgrade.shape[3])>=3):
+        n = floor(log(min(downgrade.shape[2], downgrade.shape[3]), 3))
+        for i in range(n):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
             zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
-            width = self.width(zoomout)
-            height = self.height(zoomout)
-            mix = stack([width, height], dim=1).reshape(B, self.half_out_channels*2, H, W)
-            score = score + mix
+            # width = self.width(zoomout)
+            # height = self.height(zoomout)
+            # mix = stack([width, height], dim=1).reshape(B, self.half_out_channels*2, H, W)
+            score = score + self.interpolate(zoomout)
         score = self.ft(score)
         score = self.ft(score)
         score = self.ft(score)

@@ -1,15 +1,28 @@
-from torch.nn import Module
-from torch import Tensor
-from typing import Callable
+from torch.nn import Module, ModuleList, Sequential
+from torch import Tensor, stack
+from typing import Callable, Iterator
 
-class Parallel(Module):
+class Splitter(Module):
+    _modules: dict[str, Module]  # type: ignore[assignment]
     def __init__(self, *modules: Module):
         super().__init__()
-        self.sub_modules = modules
+        for idx, module in enumerate(modules):
+            self.add_module(str(idx), module)
+            
+    def __iter__(self) -> Iterator[Module]:
+        return iter(self._modules.values())
+
     def forward(self, x:Tensor) -> tuple[Tensor, ...]:
-        return tuple([module(x) for module in self.sub_modules])
+        return tuple(module(x) for module in self)
+class Parallel(Module):
+    def __init__(self, *modules: Module, loop: int = 1):
+        super().__init__()
+        for idx, module in enumerate(modules):
+            self.add_module(str(idx), module)
+    def forward(self, *x: Tensor) -> tuple[Tensor, ...]:
+        return tuple([module(i) for module, i in zip(self.modules(), x)])
 class Loop(Module):
-    def __init__(self, init: Callable[[], ], condition: Callable[[], bool], inc: Callable[[], ], func: Callable[[Tensor], Tensor]) -> None:
+    def __init__(self, init: Callable[[], None], condition: Callable[[], bool], inc: Callable[[], None], func: Callable[[Tensor], Tensor]) -> None:
         super().__init__()
         self.init = init
         self.condition = condition
@@ -21,27 +34,26 @@ class Loop(Module):
             x = self.func(x)
             self.inc()
         return x
-class Sequential(Module):
-    def __init__(self, *submodules:Module):
-        super().__init__()
-        self.submodules = submodules
-    def forward(self, *args:Tensor) -> tuple[Tensor, ...]:
-        x: Tensor | tuple[Tensor, ...] = args
-        for module in self.submodules:
-            x = module(*x)
-            if (x is Tensor): 
-                x = [args]
-        return args
-class Splitter(Module):
+class Merger(Module):
     def __init__(self, num_channels: tuple[int,...], *submodules: Module):
         super().__init__()
         self.num_channels = num_channels
-        self.submodules = submodules
+        for idx, module in enumerate(submodules):
+            self.add_module(str(idx), module)
     def forward(self, *x: Tensor) -> tuple[Tensor, ...]:
         previous = 0
         output: list[Tensor] = []
-        for i in range(len(self.num_channels)):
-            sub = x[previous:previous+self.num_channels[i]]
-            output.append(self.submodules[i](sub))
-            previous += self.num_channels[i]
+        for i, module in zip(self.num_channels, self.modules()):
+            sub = x[previous:previous+i]
+            output.append(module(sub))
+            previous += i
         return tuple(output)
+class Stack(Module):
+    def __init__(self, dim: int = 0):
+        super().__init__()
+        self.dim = dim
+    def forward(self, arg: tuple[Tensor, ...]) -> Tensor:
+        size = list[int](arg[0].shape)
+        size[self.dim] *= len(arg)
+        x = stack(arg, dim=self.dim)
+        return x.view(*size)
