@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, ReLU, Sequential, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter
 from torch import Tensor, device, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
-
+from Base import MaxLeakyReLU, SharedConv, EmphaseLocal
 def mode_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
     if padding > 0:
         x = pad(x, (padding, padding, padding, padding), mode="constant")
@@ -12,43 +12,6 @@ def mode_pool2d(x, kernel_size=3, stride=1, padding=0) -> Tensor:
     H_out = (H - kernel_size) // stride + 1
     W_out = (W - kernel_size) // stride + 1
     return median.view(B, C, H_out, W_out)
-
-class SharedConv(Module):
-    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
-        super().__init__()
-        self.kernel = Parameter(tensor([[[[0.5]]]], device=device).repeat(1, 1, kernel_size, kernel_size))
-        self.stride = stride
-        self.padding = padding
-        if (bias):
-            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
-        else:
-            self.bias = 0
-        self.kernel_size = kernel_size
-    def forward(self, x: Tensor) -> Tensor:
-        kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, self.kernel_size)
-        return conv2d(x, weight=kernel, stride=self.stride, padding=self.padding, groups=x.shape[1]) + self.bias
-class EmphaseLocal(Module):
-    def __init__(self, kernel_size:int, device: device = device("cpu")) -> None:
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.device = device
-        self.conv = SharedConv(kernel_size, padding=kernel_size//2, bias=True, device=device)
-        
-    def forward(self, x:Tensor) -> Tensor:
-        score = sigmoid(self.conv(x))
-        return x*score
-class MaxLeakyReLU(Module):
-    def __init__(self, threshold: float = 0.1, scale: float = 0.01):
-        super().__init__()
-        self.threshold = threshold
-        self.scale = scale
-    def forward(self, x:Tensor) -> Tensor:
-        B, C, H, W = x.shape
-        score = sigmoid(x)
-        M = score.max(dim=-1, keepdim=True).values.max(dim=-2, keepdim=True).values - self.threshold
-        M = M.expand(B, C, H, W)
-        return where(score>=M, x, self.scale*x)
-        
         
 class ColorHead(Module):
     def __init__(self, in_channels: int, half_out_channels: int, device: device = device("cpu")) -> None:
