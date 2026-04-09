@@ -94,7 +94,7 @@ def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
     gt_r = gt_w/(gt_h + eps)
     sq = (pred_s/(gt_s + eps) - 1).square()
     rq = (pred_r - gt_r).square()
-    return sq + rq
+    return ((pred_w - gt_w).square() + (pred_h - gt_h).square()).sum()
 
 def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
     """Summary
