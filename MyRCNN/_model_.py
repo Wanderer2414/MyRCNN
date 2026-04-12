@@ -133,7 +133,7 @@ class Model:
     def train(self, x: Dataset):
         size = x.getTrainSize()
         start = time()
-        if (os.path.exists("bbx.pth") and False):
+        if (os.path.exists("bbx.pth")):
             self.model.load_state_dict(load("bbx.pth", map_location=self.device))
             print("Load model!")
         else:
@@ -153,7 +153,8 @@ class Model:
                 if ((i+1) % (size//5) == 0):
                     print(f"Saved: {(i+1)} / {size//5} progress")
                     save(self.model.state_dict(), "bbx.pth")
-                show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
+                if (i == 0):
+                    show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
                 save(self.model.state_dict(), "bbx.pth")
             
         start = time()

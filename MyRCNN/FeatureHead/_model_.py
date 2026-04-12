@@ -1,9 +1,8 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d, Sigmoid
-from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum
+from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum, split, cdist, int64, floor, sort, tensor_split
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
-from torchvision.ops import roi_align
+from torchvision.ops import roi_align, nms
 from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, MaxChannelReLU
-
 class WidthConv(Module):
     def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
@@ -91,7 +90,30 @@ class BoundingBoxRegression(Module):
         return cat([score, wh], dim=1)
        
         
+def getnear(origin:Tensor, points: Tensor, threshold: float) -> Tensor:
 
+    device = points.device
+
+    # Step 1: assign grid cells
+    cell_size = threshold
+    grid = floor(points / cell_size).to(int64)
+
+    # Step 2: hash grid coordinates → 1D key
+    keys = grid[:, 0] * 1000000 + grid[:, 1]
+
+    # Step 3: sort by grid cell
+    sorted_keys, indices = sort(keys)
+    points_sorted = points[indices]
+    grid_sorted = grid[indices]
+
+    # Step 4: find boundaries of same cell
+    diff = sorted_keys[1:] != sorted_keys[:-1]
+    split_idx = where(diff)[0] + 1
+
+    groups = tensor_split(origin, split_idx.tolist())
+    groups = cat([i.mean(dim=0,keepdim=True) for i in groups], dim=0)
+    
+    return groups
 class FeatureHead(Module):
     def __init__(self, mask_channels: int, half_color_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
@@ -117,24 +139,27 @@ class FeatureHead(Module):
         h = h[mask]
         
         s = score_flat[mask]
-        x1 = (x-w).floor().long()
-        x2 = (x+w).ceil().long()
-        y1 = (y-h).floor().long()
-        y2 = (y+h).ceil().long()
+        x1 = (x-w).floor()
+        x2 = (x+w).ceil()
+        y1 = (y-h).floor()
+        y2 = (y+h).ceil()
         
-        # indices = (x1 < 0) | (x2 > W)
-        # n_width = (minimum(W - cx[indices], cx[indices])/w[indices]).detach()
-        # w[indices] = w[indices]*n_width
+        out = stack([x1,y1,x2,y2],dim=-1)
+        box = nms(out, s, 0.5)
+        out = cat([s.unsqueeze(-1), out], dim=-1)
+        # distance = stack([cx, cy], dim=-1)
+        # out = getnear(out, distance, 3)
+        # N = out.shape[0]
+        # current = 0
+        # result = zeros(0, 5)
+        # for i in range(1, N):
+        #     distance = ((cx[i] - cx[current]).square() + (cy[i] - cy[current]).square()).sqrt()
+        #     if (distance > 10):
+        #         out[current] /= (i-current)
+        #         result = cat([result, out[current].unsqueeze(0)], dim=0)
+        #         current = i
+        #     else: out[current] = out[current] + out[i]
+        # out[current] /= N-current
+        # result = cat([result, out[current].unsqueeze(0)], dim=0).unsqueeze(0)
         
-        # x1[indices] = (cx[indices] - w[indices]).floor().long()
-        # x2[indices] = (cx[indices] + w[indices]).ceil().long()
-        
-        # indices = (y1 < 0) | (y2 > H)
-        # n_height = (minimum(H - cy[indices], cy[indices])/h[indices]).detach()
-        # h[indices] = h[indices]*n_height
-        # y1[indices] = (cy[indices] - h[indices]).floor().long()
-        # y2[indices] = (cy[indices] + h[indices]).ceil().long()
-        
-        
-        out = stack([s,x1,y1,x2,y2],dim=-1).unsqueeze(0)
-        return [score, out]
+        return [score, out.unsqueeze(0)]
