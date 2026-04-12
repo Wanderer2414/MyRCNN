@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
-from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack
+from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack, sigmoid
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
 from torchvision.ops import complete_box_iou_loss, roi_align
 from torch.optim import Adam
@@ -20,15 +20,15 @@ class MyRCNN(Module):
         color: Tensor = self.color(x)
         feature: Tensor = self.feat(mask, color)
         return mask, color, feature
-def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
+def MyBBLoss(scores: Tensor, label: Tensor) -> Tensor:
     label = label.squeeze(0)
     X1 = label[:, 0].floor().long()
     X2 = label[:, 2].ceil().long()
     Y1 = label[:, 1].floor().long()
     Y2 = label[:, 3].ceil().long()
-    B, C, H, W = scores[0].shape
+    B, C, H, W = scores.shape
     C_gt = label.shape[0]
-    score = scores[0][:, 0:1, :, :]
+    score = scores[:, 0:1, :, :]
     row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,C_gt,H,W)
     col = arange(W, device=label.device, dtype=tfloat).view(1,1,1,W).expand(1,C_gt,H,W)
     center_x = ((X1+X2)/2).view(1, -1, 1, 1).expand(1, C_gt, H, W)
@@ -37,19 +37,26 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     target = distance.min(dim=1, keepdim=True).values
     target = 1-target/target.max()
     
-    score = roi_align(score, [label[:, 0:4]], (400, 400))
+    score_box = roi_align(score, [label[:, 0:4]], (400, 400))
     target = roi_align(target, [label[:, 0:4]], (400, 400))
-    score =  binary_cross_entropy_with_logits(score, target)
+    score =  binary_cross_entropy_with_logits(score_box, target)
     
-    boxes = scores[1][:, :, 1:].squeeze(0)
+    boxes = label[:, 0:4]
+    wh = roi_align(scores[:, 1:3, :, :], [label[:, 0:4]], (400, 400))
+    w = boxes[:, 2] - boxes[:, 0]
+    h = boxes[:, 3] - boxes[:, 1]
+    N = label.shape[0]
+    wh_gt = stack([w,h], dim=0).view(N, 2, 1, 1)
+    wh /= wh_gt/400
+    # boxes = scores[1][:, :, 1:].squeeze(0)
     
-    N = boxes.shape[0]
-    if (N>0):
-        boxes_gt = label[:, 0:4]
-        FIoULoss = FIoU(boxes, boxes_gt).mean()
-        return score + FIoULoss
+    # N = boxes.shape[0]
+    # if (N>0):
+    # boxes_gt = label[:, 0:4]
+    FIoULoss = FIoU(score_box, wh)
+    return score + FIoULoss
     return score
-def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
+def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
     """Summary
 
     Args:
@@ -59,42 +66,29 @@ def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
     Returns:
         Tensor: _description_
     """
-    N = boxes.shape[0]
-    M = boxes_gt.shape[0]
+    H, W = score.shape[-2:]
+    w = wh[:, 0:1, :, :]
+    h = wh[:, 1:2, :, :]
     
-    bound = boxes_gt
-    bound_x1 = ((bound[:, 0]*13 + bound[:,2])/24).view(1, M, 1).expand(N, M, 1)
-    bound_y1 = ((bound[:, 2]*13 + bound[:,0])/24).view(1, M, 1).expand(N, M, 1)
-    bound_x2 = ((bound[:, 1]*13 + bound[:,3])/24).view(1, M, 1).expand(N, M, 1)
-    bound_y2 = ((bound[:, 3]*13 + bound[:,1])/24).view(1, M, 1).expand(N, M, 1)
+    indices = sigmoid(score) > 0.8
+    N = score.shape[0]
+    count = indices.view(N, -1).sum(dim=-1, keepdim=True).view(N, 1, 1, 1)
+    indices = indices/(count+eps)
+    matrix_x = arange(W, device=score.device).view(1, 1, 1, W).expand(1, 1, H, W)
+    matrix_y = arange(H, device=score.device).view(1, 1, H, 1).expand(1, 1, H, W)
+    pred_x1 = -w/2 + matrix_x
+    pred_x2 = w/2 + matrix_x
+    pred_y1 = -h/2 + matrix_y
+    pred_y2 = h/2 + matrix_y
     
-    pred_x1 = boxes[:, 0:1]
-    pred_x2 = boxes[:, 2:3]
-    pred_y1 = boxes[:, 1:2]
-    pred_y2 = boxes[:, 3:4]
-    pred_cX = ((pred_x1 + pred_x2)/2).view(N, 1, 1).expand(N, M, 1)
-    pred_cY = ((pred_y1 + pred_y2)/2).view(N, 1, 1).expand(N, M, 1)
-    indices = (pred_cX > bound_x1) & (pred_cX < bound_x2) & (pred_cY > bound_y1) & (pred_cY < bound_y2)
+    pred_x1 = (pred_x1*indices).sum(dim=(-2, -1))
+    pred_x2 = (pred_x2*indices).sum(dim=(-2, -1))
+    pred_y1 = (pred_y1*indices).sum(dim=(-2, -1))
+    pred_y2 = (pred_y2*indices).sum(dim=(-2, -1))
     
-    pred_w = (pred_x2 - pred_x1).view(N, 1, 1).expand(N, M, -1)[indices].view(-1)
-    pred_h = (pred_y2 - pred_y1).view(N, 1, 1).expand(N, M, -1)[indices].view(-1)
-    pred_s = pred_w * pred_h
-    
-    gt_x1 = boxes_gt[:, 0:1]
-    gt_x2 = boxes_gt[:, 2:3]
-    gt_y1 = boxes_gt[:, 1:2]
-    gt_y2 = boxes_gt[:, 3:4]
-    gt_cX = (gt_x1 + gt_x2)/2
-    gt_cY = (gt_y1 + gt_y2)/2
-    gt_w = (gt_x2 - gt_x1).view(1, M, -1).expand(N, M, -1)[indices].view(-1)
-    gt_h = (gt_y2 - gt_y1).view(1, M, -1).expand(N, M, -1)[indices].view(-1)
-    gt_s = gt_w * gt_h
-    # c2 = 4*(((pred_cX - gt_cX)/gt_w).square() + ((pred_cY - gt_cY)/gt_h).square())
-    pred_r = pred_w/(pred_h+eps)
-    gt_r = gt_w/(gt_h + eps)
-    sq = (pred_s/(gt_s + eps) - 1).square()
-    rq = (pred_r - gt_r).square()
-    return ((pred_w - gt_w).square() + (pred_h - gt_h).square()).sum()
+    pred_w = (w*indices/W).sum(dim=(-2, -1))
+    pred_h = (h*indices/H).sum(dim=(-2, -1))
+    return ((1-pred_w).square() + (1-pred_h).square()).mean()
 
 def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
     """Summary

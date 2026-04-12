@@ -65,8 +65,7 @@ class BoundingBoxRegression(Module):
             AvgPool2d(kernel_size=11,stride=1, padding=5),
             MaxLeakyReLU(scale=0.01, threshold=0),
             
-            MaxChannelReLU(),
-            Sigmoid()
+            MaxChannelReLU()
         )
         self.width = Sequential(
             WidthConv(kernel_size=11, stride=1, padding=5, device=device),
@@ -121,32 +120,33 @@ class FeatureHead(Module):
         # self.cls = Classification(boundary_channels=mask_channels, color_channels=half_color_channels*2, num_classes=num_classes, device=device)
         self.num_classes = num_classes
         
-    def forward(self, mask: Tensor, color: Tensor) -> list[Tensor]:
+    def forward(self, mask: Tensor, color: Tensor) -> Tensor:
         bbx: Tensor = self.bbx(color) # [B, SWH, H, W]
-        B, C, H, W = color.shape
-        score = bbx[:,0:1,:,:]
-        y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
-        x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
-        bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
-        score_flat = bbx_flat[:,:,0:1]
-        w = bbx_flat[:,:,1:2]
-        h = bbx_flat[:,:,2:3]
-        mask = (score_flat>0.8) & (w>5) & (h>5)
+        return bbx
+        # B, C, H, W = color.shape
+        # score = bbx[:,0:1,:,:]
+        # y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
+        # x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
+        # bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
+        # score_flat = bbx_flat[:,:,0:1]
+        # w = bbx_flat[:,:,1:2]
+        # h = bbx_flat[:,:,2:3]
+        # mask = (score_flat>0.8) & (w>5) & (h>5)
 
-        cx = x = x[mask]
-        cy = y = y[mask]
-        w = w[mask]
-        h = h[mask]
+        # cx = x = x[mask]
+        # cy = y = y[mask]
+        # w = w[mask]
+        # h = h[mask]
         
-        s = score_flat[mask]
-        x1 = (x-w).floor()
-        x2 = (x+w).ceil()
-        y1 = (y-h).floor()
-        y2 = (y+h).ceil()
+        # s = score_flat[mask]
+        # x1 = (x-w).floor()
+        # x2 = (x+w).ceil()
+        # y1 = (y-h).floor()
+        # y2 = (y+h).ceil()
         
-        out = stack([x1,y1,x2,y2],dim=-1)
-        box = nms(out, s, 0.5)
-        out = cat([s.unsqueeze(-1), out], dim=-1)
+        # out = stack([x1,y1,x2,y2],dim=-1)
+        # box = nms(out, s, 0.5)
+        # out = cat([s.unsqueeze(-1), out], dim=-1)
         # distance = stack([cx, cy], dim=-1)
         # out = getnear(out, distance, 3)
         # N = out.shape[0]
