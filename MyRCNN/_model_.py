@@ -141,7 +141,7 @@ class Model:
                     continue
                 mask, color, out = self.model(tens)
                 boxes = label[:, :, 1:].squeeze(0)
-                cls = self.cls(mask, color, boxes)
+                # cls = self.cls(mask, color, boxes)
                 lss = MyBBLoss(out,label)
                 self.opt.zero_grad()
                 lss.backward()
