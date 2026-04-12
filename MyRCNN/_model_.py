@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
 from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
-from torchvision.ops import complete_box_iou_loss
+from torchvision.ops import complete_box_iou_loss, roi_align
 from torch.optim import Adam
 from dataset import Dataset
 from typing import Callable
@@ -36,6 +36,9 @@ def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
     distance = ((col-center_x).square() + (row-center_y).square()).sqrt()
     target = distance.min(dim=1, keepdim=True).values
     target = 1-target/target.max()
+    
+    score = roi_align(score, [label[:, 0:4]], (400, 400))
+    target = roi_align(target, [label[:, 0:4]], (400, 400))
     score =  binary_cross_entropy_with_logits(score, target)
     
     boxes = scores[1][:, :, 1:].squeeze(0)
