@@ -49,17 +49,17 @@ class BoundingBoxRegression(Module):
         self.score = Sequential(
             ChannelNormalize(),
             
-            BatchNorm2d(half_color_channels*2, affine=False, device=device),
-            AvgPool2d(kernel_size=11,stride=1, padding=5),
-            MaxLeakyReLU(scale=0.1, threshold=0.01),
+            # BatchNorm2d(half_color_channels*2, affine=False, device=device),
+            # AvgPool2d(kernel_size=11,stride=1, padding=5),
+            # MaxLeakyReLU(scale=0.1, threshold=0.01),
             
-            BatchNorm2d(num_features=half_color_channels*2, affine=False, device=device),
-            AvgPool2d(kernel_size=11,stride=1, padding=5),
-            MaxLeakyReLU(scale=0.1, threshold=0.01),
+            # BatchNorm2d(num_features=half_color_channels*2, affine=False, device=device),
+            # AvgPool2d(kernel_size=11,stride=1, padding=5),
+            # MaxLeakyReLU(scale=0.1, threshold=0.01),
             
-            BatchNorm2d(num_features=half_color_channels*2, affine=False, device=device),
-            AvgPool2d(kernel_size=11,stride=1, padding=5),
-            MaxLeakyReLU(scale=0.1, threshold=0.01),
+            # BatchNorm2d(num_features=half_color_channels*2, affine=False, device=device),
+            # AvgPool2d(kernel_size=11,stride=1, padding=5),
+            # MaxLeakyReLU(scale=0.1, threshold=0.01),
             
             BatchNorm2d(num_features=half_color_channels*2, affine=False, device=device),
             AvgPool2d(kernel_size=11,stride=1, padding=5),
