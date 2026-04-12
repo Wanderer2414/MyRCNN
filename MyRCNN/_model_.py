@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
-from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load
+from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
 from torchvision.ops import complete_box_iou_loss
 from torch.optim import Adam
@@ -21,43 +21,28 @@ class MyRCNN(Module):
         feature: Tensor = self.feat(mask, color)
         return mask, color, feature
 def MyBBLoss(scores: list[Tensor], label: Tensor) -> Tensor:
-    label = label.squeeze().squeeze()
-    X1, Y1, X2, Y2 = label[0:4]
-    X1 = X1.floor().long()
-    X2 = X2.ceil().long()
-    Y1 = Y1.floor().long()
-    Y2 = Y2.ceil().long()
+    label = label.squeeze(0)
+    X1 = label[:, 0].floor().long()
+    X2 = label[:, 2].ceil().long()
+    Y1 = label[:, 1].floor().long()
+    Y2 = label[:, 3].ceil().long()
     B, C, H, W = scores[0].shape
+    C_gt = label.shape[0]
     score = scores[0][:, 0:1, :, :]
-    # w = scores[:, 1:2, :, :]
-    # h = scores[:, 2:3, :, :]
-    row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,1,H,W)
-    col = arange(W, device=label.device, dtype=tfloat).view(1,1,1,W).expand(1,1,H,W)
-    # x1 = (col-w).floor()
-    # x2 = (col+w).ceil()
-    # y1 = (row-h).floor()
-    # y2 = (row+h).ceil()
-    pred_box = score[:, :, Y1:Y2, X1:X2]
-    center = tensor([(X1+X2)/2, (Y1+Y2)/2], device=label.device).view(2, 1, 1, 1, 1).expand(2, 1,1,H,W)
-    distance = ((row-center[1]).square() + (col-center[0]).square()).sqrt()
-    target = distance[:, :, Y1:Y2, X1:X2]
+    row = arange(H, device=label.device, dtype=tfloat).view(1,1,H,1).expand(1,C_gt,H,W)
+    col = arange(W, device=label.device, dtype=tfloat).view(1,1,1,W).expand(1,C_gt,H,W)
+    center_x = ((X1+X2)/2).view(1, -1, 1, 1).expand(1, C_gt, H, W)
+    center_y = ((Y1+Y2)/2).view(1, -1, 1, 1).expand(1, C_gt, H, W)
+    distance = ((col-center_x).square() + (row-center_y).square()).sqrt()
+    target = distance.min(dim=1, keepdim=True).values
     target = 1-target/target.max()
-    score =  binary_cross_entropy_with_logits(pred_box, target)
+    score =  binary_cross_entropy_with_logits(score, target)
     
     boxes = scores[1][:, :, 1:].squeeze(0)
-    cx = (boxes[:, 0:1] + boxes[:, 2:3])/2
-    cy = (boxes[:, 1:2] + boxes[:, 3:4])/2
-    X1k = (2*X1 + X2)/3
-    X2k = (X1 + 2*X2)/3
-    Y1k = (2*Y1 + Y2)/3
-    Y2k = (Y1 + 2*Y2)/3
     
-    indices = (cx>X1k) & (cx<X2k) & (cy>Y1k) & (cy<Y2k)
-    indices = indices.repeat(1, 4)
-    boxes = boxes[indices].reshape(-1, 4)
     N = boxes.shape[0]
     if (N>0):
-        boxes_gt = label[0:4].unsqueeze(0).repeat(N, 1)
+        boxes_gt = label[:, 0:4]
         FIoULoss = FIoU(boxes, boxes_gt).mean()
         return score + FIoULoss
     return score
@@ -66,28 +51,40 @@ def FIoU(boxes: Tensor, boxes_gt: Tensor, eps:float = 1e-7) -> Tensor:
 
     Args:
         boxes (Tensor): [N, 4] -> [x1,y1,x2,y2]
-        boxes_gt (Tensor): [N, 4] -> [x1, y1, x2, y2]
+        boxes_gt (Tensor): [M, 4] -> [x1, y1, x2, y2]
 
     Returns:
         Tensor: _description_
     """
+    N = boxes.shape[0]
+    M = boxes_gt.shape[0]
+    
+    bound = boxes_gt
+    bound_x1 = ((bound[:, 0]*13 + bound[:,2])/24).view(1, M, 1).expand(N, M, 1)
+    bound_y1 = ((bound[:, 2]*13 + bound[:,0])/24).view(1, M, 1).expand(N, M, 1)
+    bound_x2 = ((bound[:, 1]*13 + bound[:,3])/24).view(1, M, 1).expand(N, M, 1)
+    bound_y2 = ((bound[:, 3]*13 + bound[:,1])/24).view(1, M, 1).expand(N, M, 1)
+    
     pred_x1 = boxes[:, 0:1]
     pred_x2 = boxes[:, 2:3]
     pred_y1 = boxes[:, 1:2]
     pred_y2 = boxes[:, 3:4]
-    pred_cX = (pred_x1 + pred_x2)/2
-    pred_cY = (pred_y1 + pred_y2)/2
-    pred_w = pred_x2 - pred_x1
-    pred_h = pred_y2 - pred_y1
+    pred_cX = ((pred_x1 + pred_x2)/2).view(N, 1, 1).expand(N, M, 1)
+    pred_cY = ((pred_y1 + pred_y2)/2).view(N, 1, 1).expand(N, M, 1)
+    indices = (pred_cX > bound_x1) & (pred_cX < bound_x2) & (pred_cY > bound_y1) & (pred_cY < bound_y2)
+    
+    pred_w = (pred_x2 - pred_x1).view(N, 1, 1).expand(N, M, -1)[indices].view(-1)
+    pred_h = (pred_y2 - pred_y1).view(N, 1, 1).expand(N, M, -1)[indices].view(-1)
     pred_s = pred_w * pred_h
+    
     gt_x1 = boxes_gt[:, 0:1]
     gt_x2 = boxes_gt[:, 2:3]
     gt_y1 = boxes_gt[:, 1:2]
     gt_y2 = boxes_gt[:, 3:4]
     gt_cX = (gt_x1 + gt_x2)/2
     gt_cY = (gt_y1 + gt_y2)/2
-    gt_w = gt_x2 - gt_x1
-    gt_h = gt_y2 - gt_y1
+    gt_w = (gt_x2 - gt_x1).view(1, M, -1).expand(N, M, -1)[indices].view(-1)
+    gt_h = (gt_y2 - gt_y1).view(1, M, -1).expand(N, M, -1)[indices].view(-1)
     gt_s = gt_w * gt_h
     # c2 = 4*(((pred_cX - gt_cX)/gt_w).square() + ((pred_cY - gt_cY)/gt_h).square())
     pred_r = pred_w/(pred_h+eps)
@@ -140,47 +137,41 @@ class Model:
             self.model.load_state_dict(load("bbx.pth", map_location=self.device))
             print("Load model!")
         else:
-            for epoch in range(50):
-                sloss = 0
-                for i in range(30):
-                    tens:Tensor = x.getTrainTensor(i).to(self.device)
-                    label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
-                    if (label.shape[1] == 0):
-                      continue
-                    mask, color, out = self.model(tens)
-                    boxes = label[:, :, 1:].squeeze(0)
-                    cls = self.cls(mask, color, boxes)
-                    lss = MyBBLoss(out,label)
-                    self.opt.zero_grad()
-                    lss.backward()
-                    self.opt.step()
-                    # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                    sloss += lss
-                    if ((i+1) % (size//5) == 0):
-                        print(f"Saved: {(i+1)} / {size//5} progress")
-                        save(self.model.state_dict(), "bbx.pth")
-                show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
+            for i in range(x.getTrainSize()):
+                tens:Tensor = x.getTrainTensor(i).to(self.device)
+                label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
+                if (label.shape[1] == 0):
+                    continue
+                mask, color, out = self.model(tens)
+                boxes = label[:, :, 1:].squeeze(0)
+                cls = self.cls(mask, color, boxes)
+                lss = MyBBLoss(out,label)
+                self.opt.zero_grad()
+                lss.backward()
+                self.opt.step()
+                # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+                if ((i+1) % (size//5) == 0):
+                    print(f"Saved: {(i+1)} / {size//5} progress")
+                    save(self.model.state_dict(), "bbx.pth")
+                show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
                 save(self.model.state_dict(), "bbx.pth")
             
-        # start = time()
-        # for epoch in range(50):
-        #     sloss = 0
-        #     for i in range(30):
-        #         tens:Tensor = x.getTrainTensor(i).to(self.device)
-        #         label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
-        #         if (label.shape[1] == 0):
-        #           continue
-        #         mask, color, out = self.model(tens)
-        #         boxes = label[:, :, 1:].squeeze(0)
-        #         cls = self.cls(mask, color, boxes)
-        #         lss = ClsLoss(cls, label)
-        #         self.opt2.zero_grad()
-        #         lss.backward()
-        #         self.opt2.step()
-        #         show_progress_counter(i+1, size, start, f"Loss: {lss}")
-        #         sloss += lss
-        #         if ((i+1) % (size//5) == 0):
-        #             print(f"Saved: {(i+1)} / {size//5} progress")
-        #             save(self.cls.state_dict(), "cls.pth")
-        #     show_progress_counter(epoch+1, 50, start, f"{sloss/10}")
-        #     save(self.cls.state_dict(), "cls.pth")
+        start = time()
+        for i in range(x.getTrainSize()):
+            tens:Tensor = x.getTrainTensor(i).to(self.device)
+            label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
+            if (label.shape[1] == 0):
+              continue
+            mask, color, out = self.model(tens)
+            boxes = label[:, :, 1:].squeeze(0)
+            cls = self.cls(mask, color, boxes)
+            lss = ClsLoss(cls, label)
+            self.opt2.zero_grad()
+            lss.backward()
+            self.opt2.step()
+            show_progress_counter(i+1, size, start, f"Loss: {lss}")
+            if ((i+1) % (size//5) == 0):
+                print(f"Saved: {(i+1)} / {size//5} progress")
+                save(self.cls.state_dict(), "cls.pth")
+            show_progress_counter(i+1, 50, start, f"{lss}")
+            save(self.cls.state_dict(), "cls.pth")
