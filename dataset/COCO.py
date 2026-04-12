@@ -2,8 +2,8 @@ from torch import Tensor, from_numpy, tensor, cat, stack
 from ._dataset_ import Dataset
 from cv2 import imread
 from ._funcs_ import ImgRead
-from dataset2 import YOLODataset
-import config
+from .dataset2 import YOLODataset
+from . import config
 class Coco(Dataset):
     def __init__(self, path:str):
         self.path = path

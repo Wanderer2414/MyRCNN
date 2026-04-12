@@ -1,6 +1,6 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
-from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack, sigmoid
-from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
+from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack, sigmoid, ones
+from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits, interpolate, pad
 from torchvision.ops import complete_box_iou_loss, roi_align
 from torch.optim import Adam
 from dataset import Dataset
@@ -10,6 +10,48 @@ from display import show_progress_counter
 from . import ColorHead, MaskHead, FeatureHead, Classfication
 import os
 
+def letterbox_tensor(img: Tensor, new_shape=(640, 640), color=114):
+    """
+    YOLO-style letterbox resize for torch tensors.
+
+    Args:
+        img: Tensor (B, C, H, W)
+        new_shape: (H, W)
+        color: padding value
+
+    Returns:
+        padded image tensor
+    """
+
+    assert img.ndim == 4, "Input must be (C, H, W)"
+
+    b, c, h, w = img.shape
+    new_h, new_w = new_shape
+    r = min(new_w / w, new_h / h)
+    resized_w = int(round(w * r))
+    resized_h = int(round(h * r))
+    img_resized = interpolate(
+        img,
+        size=(resized_h, resized_w),
+        mode="bilinear",
+        align_corners=False
+    )
+
+    dw = new_w - resized_w
+    dh = new_h - resized_h
+
+    pad_left = dw // 2
+    pad_right = dw - pad_left
+    pad_top = dh // 2
+    pad_bottom = dh - pad_top
+
+    img_padded = pad(
+        img_resized,
+        (pad_left, pad_right, pad_top, pad_bottom),
+        value=color
+    )
+
+    return img_padded
 
 row = arange(400, dtype=tfloat, device="cuda").view(1,1,400,1).expand(1,1,400,400)
 col = arange(400, dtype=tfloat, device="cuda").view(1,1,1,400).expand(1,1,400,400)
@@ -29,29 +71,21 @@ class MyRCNN(Module):
         color: Tensor = self.color(x)
         feature: Tensor = self.feat(mask, color)
         return mask, color, feature
-def MyBBLoss(scores: list[Tensor], labels: list[Tensor]) -> Tensor:
-    C_gt = 0
-    
-    score_box = zeros(0, 1, 400, 400, device="cuda")
-    whs = zeros(0, 2, 400, 400, device="cuda")
-    for score, label in zip(scores, labels):
-        score_box = cat([score_box, roi_align(score[:, 0:1, :, :], [label[:, 0:4]], (400, 400))], dim=0)
-        
-        boxes = label[:, 0:4]
-        wh = roi_align(score[:, 1:3, :, :], [label[:, 0:4]], (400, 400))
-        w = boxes[:, 2] - boxes[:, 0]
-        h = boxes[:, 3] - boxes[:, 1]
-        N = label.shape[0]
-        wh_gt = stack([w,h], dim=0).view(N, 2, 1, 1)
-        wh /= wh_gt/400
-        whs = cat([whs, wh], dim=0)
-    C_gt += score_box.shape[0]
+def MyBBLoss(scores: Tensor, labels: Tensor) -> Tensor:
+    C_gt = labels.shape[0]
+    score_box = roi_align(scores[:, 0:1, :, :], labels[:, 0:5], (400, 400))
+    wh = roi_align(scores[:, 1:3, :, :], labels[:, 0:5], (400, 400))
+    boxes = labels[:, 1:5]
+    w = boxes[:, 2] - boxes[:, 0]
+    h = boxes[:, 3] - boxes[:, 1]
+    N = labels.shape[0]
+    wh_gt = stack([w,h], dim=0).view(N, 2, 1, 1)
+    wh /= wh_gt/400
     
     score =  binary_cross_entropy_with_logits(score_box, target.expand(C_gt, 1, 400, 400))
-
     
-    FIoULoss = FIoU(score_box, whs)
-    return score + FIoULoss
+    # FIoULoss = FIoU(score_box, wh)
+    # return score + FIoULoss
     return score
 def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
     """Summary
@@ -83,6 +117,7 @@ def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
     
     pred_w = (w*indices/W).sum(dim=(-2, -1))
     pred_h = (h*indices/H).sum(dim=(-2, -1))
+    
     return ((1-pred_w).square() + (1-pred_h).square()).mean()
 
 def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
@@ -115,7 +150,7 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     cls_target = cls_label.expand(N)
     loss = cross_entropy(cls, cls_target, reduction="mean")
     return loss
-batch_size = 4
+batch_size = 5
 class Model:
     def __init__(self, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
@@ -126,24 +161,26 @@ class Model:
     def train(self, x: Dataset):
         size = x.getTrainSize()
         start = time()
-        if (os.path.exists("bbx.pth")):
+        if (os.path.exists("bbx.pth") and False):
             self.model.load_state_dict(load("bbx.pth", map_location=self.device))
             print("Load model!")
         else:
             for i in range(0, x.getTrainSize(), batch_size):
-                tens = []
-                label = []
-                out = []
+                tens = zeros(0, 3, 600, 600, device=self.device)
+                labels = zeros(0, 6, device=self.device)
                 for j in range(batch_size):
                     if (i+j>=x.getTrainSize()):
                         break
-                    ten = x.getTrainTensor(i+j).to(self.device)
-                    tens.append(ten)
-                    label.append(x.getTrainLabel(i+j).to(self.device))
-                    out.append(self.model(ten)[-1])
+                    ten = letterbox_tensor(x.getTrainTensor(i+j).to(self.device), new_shape=(600, 600))
+                    label = x.getTrainLabel(i+j).to(self.device)
+                    batch = ones(label.shape[0], 1, device=self.device) * j
+                    tens = cat([tens, ten], dim=0)
+                    labels = cat([labels, cat([batch, label], dim=1)], dim=0)
+                out = self.model(tens)[-1]
                 # boxes = label[:, :, 1:].squeeze(0)
                 # cls = self.cls(mask, color, boxes)
-                lss = MyBBLoss(out, label)
+                lss = MyBBLoss(out, labels)
+                # del tens, labels
                 self.opt.zero_grad()
                 lss.backward()
                 self.opt.step()
@@ -151,7 +188,7 @@ class Model:
                 # if ((i+1) % (size//5) == 0):
                 #     print(f"Saved: {(i+1)} / {size//5} progress")
                 #     save(self.model.state_dict(), "bbx.pth")
-                show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
+                show_progress_counter(i+1, x.getTrainSize(), start, f"{lss.detach().cpu()}")
                 if (i%100 == 0):
                     save(self.model.state_dict(), "bbx.pth")
             save(self.model.state_dict(), "bbx.pth")

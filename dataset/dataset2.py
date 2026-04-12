@@ -2,7 +2,7 @@
 Creates a Pytorch dataset to load the Pascal VOC & MS COCO datasets
 """
 
-import config
+from . import config
 import numpy as np
 import os
 import pandas as pd
