@@ -150,11 +150,10 @@ class Model:
                 lss.backward()
                 self.opt.step()
                 # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                if ((i+1) % (size//5) == 0):
-                    print(f"Saved: {(i+1)} / {size//5} progress")
-                    save(self.model.state_dict(), "bbx.pth")
-                if (i == 0):
-                    show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
+                # if ((i+1) % (size//5) == 0):
+                #     print(f"Saved: {(i+1)} / {size//5} progress")
+                #     save(self.model.state_dict(), "bbx.pth")
+                show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
                 save(self.model.state_dict(), "bbx.pth")
             
         start = time()
@@ -170,9 +169,9 @@ class Model:
             self.opt2.zero_grad()
             lss.backward()
             self.opt2.step()
-            show_progress_counter(i+1, size, start, f"Loss: {lss}")
-            if ((i+1) % (size//5) == 0):
-                print(f"Saved: {(i+1)} / {size//5} progress")
-                save(self.cls.state_dict(), "cls.pth")
-            show_progress_counter(i+1, 50, start, f"{lss}")
+            # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+            # if ((i+1) % (size//5) == 0):
+            #     print(f"Saved: {(i+1)} / {size//5} progress")
+            #     save(self.cls.state_dict(), "cls.pth")
+            show_progress_counter(i+1, x.getTrainSize(), start, f"{lss}")
             save(self.cls.state_dict(), "cls.pth")
