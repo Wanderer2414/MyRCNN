@@ -66,7 +66,7 @@ class ColorHead(Module):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
             zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
             score = score + self.interpolate(zoomout)
-        # score = self.ft(score)
-        # score = self.ft(score)
-        # score = self.ft(score)
+        score = self.ft(score)
+        score = self.ft(score)
+        score = self.ft(score)
         return score/n

@@ -8,8 +8,8 @@ class Coco(Dataset):
     def __init__(self, path:str):
         self.path = path
         
-        self.train = YOLODataset("../COCO/train.csv", "../COCO/images/", "../COCO/labels/", config.ANCHORS)
-        self.test = YOLODataset("../COCO/test.csv", "../COCO/images/", "../COCO/labels/", config.ANCHORS)
+        self.train = YOLODataset(path+"/train.csv", path + "/images/", path + "/labels/", config.ANCHORS)
+        self.test = YOLODataset(path+"/test.csv", path+"/images/", path + "/labels/", config.ANCHORS)
     def getTrainSize(self) -> int:
         return len(self.train)
     def getTestSize(self) -> int:
@@ -39,6 +39,6 @@ class Coco(Dataset):
         cls = boxes[:, -1]
         return stack([x,y,x+w,y+h, cls], dim=0).permute(1, 0)
     def getClassSize(self) -> int:
-        return len(config.COCO_LABELS)
+        return len(config.PASCAL_CLASSES)
     def getClass(self, index: int) -> str:
-        return config.COCO_LABELS[index]
+        return config.PASCAL_CLASSES[index]
