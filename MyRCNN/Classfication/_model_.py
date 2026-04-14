@@ -35,8 +35,8 @@ class Classification(Module):
             Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
             BatchNorm2d(40, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device),
-            Conv2d(in_channels=40, out_channels=num_classes, kernel_size=5, device=device), # 5x5
+            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device), # 5x5
+            Conv2d(in_channels=40, out_channels=num_classes, kernel_size=5, device=device), 
         )
         
     def forward(self, mask: Tensor, color: Tensor, boxes: Tensor) -> Tensor:

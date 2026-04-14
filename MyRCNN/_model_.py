@@ -1,5 +1,5 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
-from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack, sigmoid, floor, int64, where, sort, tensor_split
+from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack, sigmoid, floor, int64, where, sort, tensor_split, ones, no_grad
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
 from torchvision.ops import complete_box_iou_loss, roi_align
 from torch.optim import Adam
@@ -8,6 +8,7 @@ from typing import Callable
 from time import time
 from display import show_progress_counter
 from . import ColorHead, MaskHead, FeatureHead, Classfication
+from utils import non_max_suppression, mean_average_precision
 import os
 
 
@@ -141,34 +142,29 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     return loss
 batch_size = 4
 class Model:
-    def __init__(self, device: device = device("cpu")):
+    def __init__(self, dt:Dataset, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
-        self.cls = Classfication.Classification(boundary_channels=1, color_channels=32, num_classes=100, device=device)
+        self.cls = Classfication.Classification(boundary_channels=1, color_channels=32, num_classes=dt.getClassSize(), device=device)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.opt2 = Adam(self.cls.parameters(), lr=1e-4)
+        self.data = dt
         self.device = device
+        self.num_classes = dt.getClassSize()
     def inference(self, x:Tensor) -> Tensor:
-        mask, color, result = self.model(x)
-        s = result[:, 0:1, :, :]
-        w = result[:, 1:2, :, :]
-        h = result[:, 2:3, :, :]
-        H, W =s.shape[-2:]
-        col = arange(W, device=self.device).view(1, 1, 1, W).expand(1, 1, H, W)
-        row = arange(H, device=self.device).view(1, 1, H, 1).expand(1, 1, H, W)
-        indices = (s/s.max())>0.8
-        w = w[indices]
-        h = h[indices]
-        x1 = col[indices] - w/2
-        y1 = row[indices] - h/2
-        x2 = x1 + w
-        y2 = y1 + h
-        boxes = stack([x1, y1, x2, y2], dim=-1)
-        points = stack([(x1+x2)/2, (y1+y2)/2])
-        # boxes = getnear(boxes, points, 10)
-        return boxes
+        mask, color, score, bbx = self.model(x.to(device=self.device))
+        bbx = bbx.squeeze(0)
+        cls:Tensor = self.cls(mask, color, bbx[:, :-1])
+        cls = cls * bbx[:, -1:]
+        N = cls.shape[0]
+        cls_range = arange(self.num_classes, device=self.device).view(self.num_classes, 1, 1).expand(self.num_classes, N, 1)
+        cls = cls.permute(1, 0).unsqueeze(-1)
+        bbx = bbx[:, :-1].unsqueeze(0).expand(self.num_classes, N, 4)
+        result = cat([cls_range, cls, bbx], dim=-1).view(N*self.num_classes, 6)
+        ls = non_max_suppression(result.tolist(), 0.8, 0.5)
+        return tensor(ls, device=self.device)
         
-    def train(self, x: Dataset):
-        size = x.getTrainSize()
+    def train(self):
+        size = self.data.getTrainSize()
         start = time()
         if (os.path.exists("bbx.pth")):
             self.model.load_state_dict(load("bbx.pth", map_location=self.device))
@@ -176,14 +172,14 @@ class Model:
         else:
             epoches = 5
             for epoch in range(epoches):
-                for i in range(0, x.getTrainSize(), batch_size):
+                for i in range(0, self.data.getTrainSize(), batch_size):
                     tens = []
                     label = []
                     out = []
                     for j in range(batch_size):
-                        if (i+j>=x.getTrainSize()):
+                        if (i+j>=self.data.getTrainSize()):
                             break
-                        ten = x.getTrainTensor(i+j).to(self.device)
+                        ten = self.data.getTrainTensor(i+j).to(self.device)
                         tens.append(ten)
                         label.append(x.getTrainLabel(i+j).to(self.device))
                         out.append(self.model(ten)[-2])
@@ -197,31 +193,46 @@ class Model:
                     # if ((i+1) % (size//5) == 0):
                     #     print(f"Saved: {(i+1)} / {size//5} progress")
                     #     save(self.model.state_dict(), "bbx.pth")
-                    show_progress_counter(i+1, x.getTrainSize(), start, f"Epoch {epoch/epoches}; Loss {lss}", epoch, epoches)
+                    show_progress_counter(i+1, self.data.getTrainSize(), start, f"Epoch {epoch/epoches}; Loss {lss}", epoch, epoches)
                     if (i%100 == 0):
                         save(self.model.state_dict(), "bbx.pth")
                 save(self.model.state_dict(), "bbx.pth")
-            
+        if (os.path.exists("cls.pth")):
+            self.cls.load_state_dict(load("cls.pth", map_location=self.device))
+            print("Load model!")
+        else:
+            start = time()
+            epoches = 5
+            for epoch in range(epoches):
+                for i in range(self.data.getTrainSize()):
+                    tens:Tensor = self.data.getTrainTensor(i).to(self.device)
+                    label:Tensor =  self.data.getTrainLabel(i).unsqueeze(0).to(self.device)
+                    if (label.shape[1] == 0):
+                      continue
+                    mask, color, score, bbx = self.model(tens)
+                    boxes = label[:, :, 1:].squeeze(0)
+                    cls = self.cls(mask, color, boxes)
+                    lss = ClsLoss(cls, label)
+                    self.opt2.zero_grad()
+                    lss.backward()
+                    self.opt2.step()
+                    # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+                    # if ((i+1) % (size//5) == 0):
+                    #     print(f"Saved: {(i+1)} / {size//5} progress")
+                    #     save(self.cls.state_dict(), "cls.pth")
+                    show_progress_counter(i+1, self.data.getTrainSize(), start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
+                    if (i%100 == 0):
+                        save(self.cls.state_dict(), "cls.pth")
+                save(self.cls.state_dict(), "cls.pth")
+    def Evaluate(self):
+        ap = 0.0
         start = time()
-        epoches = 5
-        for epoch in range(epoches):
-            for i in range(x.getTrainSize()):
-                tens:Tensor = x.getTrainTensor(i).to(self.device)
-                label:Tensor =  x.getTrainLabel(i).unsqueeze(0).to(self.device)
-                if (label.shape[1] == 0):
-                  continue
-                mask, color, score, bbx = self.model(tens)
-                boxes = label[:, :, 1:].squeeze(0)
-                cls = self.cls(mask, color, boxes)
-                lss = ClsLoss(cls, label)
-                self.opt2.zero_grad()
-                lss.backward()
-                self.opt2.step()
-                # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                # if ((i+1) % (size//5) == 0):
-                #     print(f"Saved: {(i+1)} / {size//5} progress")
-                #     save(self.cls.state_dict(), "cls.pth")
-                show_progress_counter(i+1, x.getTrainSize(), start, f"Epoch {epoch/epoches}; Loss {lss}", epoch, epoches)
-                if (i%100 == 0):
-                    save(self.cls.state_dict(), "cls.pth")
-            save(self.cls.state_dict(), "cls.pth")
+        for i in range(self.data.getTestSize()):
+            pred = self.inference(self.data.getTestTensor(i))
+            pred = cat([ones(pred.shape[0], 1, device=self.device)*i, pred], dim=1)
+            label = self.data.getTestLabel(i).to(device=self.device)
+            one = ones(label.shape[0], 1, device=self.device)
+            label = cat([one*i, label[:, -1:], one, label[:, :-1]], dim=1)
+            ap += mean_average_precision(pred.tolist(), label.tolist(), num_classes=self.data.getClassSize())
+            show_progress_counter(i+1, self.data.getTestSize(), start, f"AP: {ap/(i+1)}", 0, 1)
+        return ap/self.data.getTestSize()

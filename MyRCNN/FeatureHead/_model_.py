@@ -68,6 +68,7 @@ class BoundingBoxRegression(Module):
         S = score.sum(dim=(-2,-1), keepdim=True)
         ws = (w*score/S).sum(dim=(-2,-1))
         hs = (h*score/S).sum(dim=(-2,-1))
+        ps = amax(sx, dim=(-2, -1))
         col = arange(W, device=x.device).view(1, 1, 1, W).expand(B, 1, H, W)
         row = arange(H, device=x.device).view(1, 1, H, 1).expand(B, 1, H, W)
         x1 = (col*score/S).sum(dim=(-2, -1)) - ws/2
@@ -75,7 +76,7 @@ class BoundingBoxRegression(Module):
         x2 = x1 + ws
         y2 = y1 + hs
         score = self.max(score)
-        return cat([x, w, h], dim=1), stack([x1, y1, x2 ,y2], dim=-1)
+        return cat([x, w, h], dim=1), stack([x1, y1, x2 ,y2, ps], dim=-1)
        
     
 class FeatureHead(Module):
