@@ -73,15 +73,11 @@ class Classification(Module):
             [N, nums] [score_1, ..., score_n]
         """
         output_size = (400, 400)
-        boundaries = mask*boundary
+        boundaries = boundary*mask
         B, C, H, W = color.shape
-        color = mask.unsqueeze(2)*color.unsqueeze(1)
-        color = color.reshape(color.shape[0], C*self.channels, color.shape[3], color.shape[4])
-        boundaries: Tensor = roi_align(mask*boundary, [boxes], output_size) # type: ignore[assignment]
-        boundaries = boundaries.max(dim=1, keepdim=True).values
+        color = color*mask
+        boundaries: Tensor = roi_align(boundary, [boxes], output_size) # type: ignore[assignment]
         colors: Tensor = roi_align(color, [boxes], output_size) # type: ignore[assignment]
-        colors = colors.view(-1, self.channels, C, colors.shape[-2], colors.shape[-1])
-        colors = colors.max(dim=1).values
         mix = cat([boundaries.repeat(1, 40, 1, 1), colors], dim=1)
         cls: Tensor = self.cls(mix)
         return cls.squeeze(-1).squeeze(-1)

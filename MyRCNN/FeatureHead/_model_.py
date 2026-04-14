@@ -80,7 +80,9 @@ class BoundingBoxRegression(Module):
         x2 = x1 + ws
         y2 = y1 + hs
         score = self.max(score)
-        return cat([x, w, h], dim=1), stack([x1, y1, x2 ,y2, ps], dim=-1)
+        w = self.max(w)
+        h = self.max(h)
+        return cat([score, w, h], dim=1), stack([x1, y1, x2 ,y2, ps], dim=-1)
        
     
 class FeatureHead(Module):

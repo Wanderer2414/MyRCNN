@@ -56,7 +56,6 @@ class MyRCNN(Module):
         return boundary, mask, color, score, bbx
 def MyBBLoss(scores: list[Tensor], labels: list[Tensor]) -> Tensor:
     C_gt = 0
-    
     score_box = zeros(0, 1, 400, 400, device=scores[0].device)
     whs = zeros(0, 2, 400, 400, device=scores[0].device)
     for score, label in zip(scores, labels):
@@ -150,9 +149,11 @@ class Model:
         self.device = device
         self.num_classes = dt.getClassSize()
     def inference(self, x:Tensor) -> Tensor:
-        mask, color, score, bbx = self.model(x.to(device=self.device))
+        x = x.to(device=self.device)
+        boundary, mask, color, score, bbx = self.model(x)
         bbx = bbx.squeeze(0)
-        cls:Tensor = sigmoid(self.cls(mask, color, bbx[:, :-1]))
+        cls:Tensor = self.cls(boundary, score[:, 0:1, :, :], x, bbx[:, :-1])
+        cls = sigmoid(cls)
         cls = cls * bbx[:, -1:]
         N = cls.shape[0]
         cls_range = arange(self.num_classes, device=self.device).view(1, self.num_classes, 1).expand(N, self.num_classes, 1)
@@ -197,33 +198,31 @@ class Model:
                     if (i%100 == 0):
                         save(self.model.state_dict(), "bbx.pth")
                 save(self.model.state_dict(), "bbx.pth")
-        # if (os.path.exists("cls.pth")):
-        #     self.cls.load_state_dict(load("cls.pth", map_location=self.device))
-        #     print("Load model!")
-        # else:
-        start = time()
-        epoches = 5
-        for epoch in range(epoches):
-            for i in range(self.data.getTrainSize()):
-                tens:Tensor = self.data.getTrainTensor(i).to(self.device)
-                label:Tensor =  self.data.getTrainLabel(i).unsqueeze(0).to(self.device)
-                if (label.shape[1] == 0):
-                  continue
-                boundary, mask, color, score, bbx = self.model(tens)
-                boxes = label[:, :, 1:].squeeze(0)
-                cls = self.cls(boundary, mask, tens, boxes)
-                lss = ClsLoss(cls, label)
-                self.opt2.zero_grad()
-                lss.backward()
-                self.opt2.step()
-                # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                # if ((i+1) % (size//5) == 0):
-                #     print(f"Saved: {(i+1)} / {size//5} progress")
-                #     save(self.cls.state_dict(), "cls.pth")
-                show_progress_counter(i+1, self.data.getTrainSize(), start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
-                if (i%100 == 0):
-                    save(self.cls.state_dict(), "cls.pth")
-            save(self.cls.state_dict(), "cls.pth")
+        if (os.path.exists("cls.pth")):
+            self.cls.load_state_dict(load("cls.pth", map_location=self.device))
+            print("Load model!")
+        else:
+            start = time()
+            epoches = 5
+            for epoch in range(epoches):
+                for i in range(self.data.getTrainSize()):
+                    tens:Tensor = self.data.getTrainTensor(i).to(self.device)
+                    label:Tensor =  self.data.getTrainLabel(i).unsqueeze(0).to(self.device)
+                    boundary, mask, color, score, bbx = self.model(tens)
+                    boxes = label[:, :, 1:].squeeze(0)
+                    cls = self.cls(boundary, score[:, 0:1, :, :], tens, boxes)
+                    lss = ClsLoss(cls, label)
+                    self.opt2.zero_grad()
+                    lss.backward()
+                    self.opt2.step()
+                    # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+                    # if ((i+1) % (size//5) == 0):
+                    #     print(f"Saved: {(i+1)} / {size//5} progress")
+                    #     save(self.cls.state_dict(), "cls.pth")
+                    show_progress_counter(i+1, self.data.getTrainSize(), start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
+                    if (i%100 == 0):
+                        save(self.cls.state_dict(), "cls.pth")
+                save(self.cls.state_dict(), "cls.pth")
     def Evaluate(self):
         ap = 0.0
         start = time()
