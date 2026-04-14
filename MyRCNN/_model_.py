@@ -153,15 +153,16 @@ class Model:
     def inference(self, x:Tensor) -> Tensor:
         mask, color, score, bbx = self.model(x.to(device=self.device))
         bbx = bbx.squeeze(0)
-        cls:Tensor = self.cls(mask, color, bbx[:, :-1])
+        cls:Tensor = sigmoid(self.cls(mask, color, bbx[:, :-1]))
         cls = cls * bbx[:, -1:]
         N = cls.shape[0]
-        cls_range = arange(self.num_classes, device=self.device).view(self.num_classes, 1, 1).expand(self.num_classes, N, 1)
-        cls = cls.permute(1, 0).unsqueeze(-1)
-        bbx = bbx[:, :-1].unsqueeze(0).expand(self.num_classes, N, 4)
+        cls_range = arange(self.num_classes, device=self.device).view(1, self.num_classes, 1).expand(N, self.num_classes, 1)
+        cls = cls.unsqueeze(-1)
+        bbx = bbx[:, :-1].view(N, 1, 4).expand(N, self.num_classes, 4)
         result = cat([cls_range, cls, bbx], dim=-1).view(N*self.num_classes, 6)
-        ls = non_max_suppression(result.tolist(), 0.8, 0.5)
-        return tensor(ls, device=self.device)
+        # ls = non_max_suppression(result.tolist(), 0.8, 0.3)
+        # return tensor(ls, device=self.device)
+        return result
         
     def train(self):
         size = self.data.getTrainSize()

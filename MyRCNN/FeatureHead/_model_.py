@@ -54,6 +54,10 @@ class BoundingBoxRegression(Module):
             HeightConv(kernel_size=11, stride=1, padding=5, device=device),
             SharedConv(kernel_size=1, stride=1, bias=False, device=device),
         )
+        self.score = Sequential(
+            # BatchNorm2d(num_features=half_color_channels*2, device=device, affine=False),
+            Sigmoid()
+        )
         self.max = MaxChannelReLU()
     def forward(self, x: Tensor):
         wh: Tensor = self.bbx(x)
@@ -62,8 +66,8 @@ class BoundingBoxRegression(Module):
         h = self.height(wh)
         # w = (sigmoid(w)-0.5)*W
         # h = (sigmoid(h)-0.5)*H
-        sx = sigmoid(x)
-        M = amax(sx, dim=(-2, -1), keepdim=True).expand(B, C, H, W) - 0.1
+        sx = self.score(x)
+        M = amax(sx, dim=(-2, -1), keepdim=True).expand(B, C, H, W) - 0.01
         score: Tensor = x*(sx>M)
         S = score.sum(dim=(-2,-1), keepdim=True)
         ws = (w*score/S).sum(dim=(-2,-1))
