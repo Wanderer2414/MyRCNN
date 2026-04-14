@@ -18,7 +18,10 @@ from utils import (
 )
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
+def collect_fn(batch):
+    imgs   = [item[0] for item in batch]
+    boxes  = [torch.cat([torch.ones(item[1].shape[0], 1)*i, item[1]], dim=1) for i, item in enumerate(batch)]
+    return torch.stack(imgs), torch.cat(boxes, dim=0)
 class YOLODataset(Dataset):
     def __init__(
         self,
@@ -55,8 +58,13 @@ class YOLODataset(Dataset):
         if self.transform:
             augmentations = self.transform(image=image, bboxes=bboxes)
             image = augmentations["image"]
-            bboxes = augmentations["bboxes"]
-
+            bboxes = torch.tensor(augmentations["bboxes"])
+        if (bboxes.dim() == 2):
+            bboxes[:, 0:2] = bboxes[:, 0:2] - bboxes[:, 2:4]/2
+            bboxes[:, 2:4] = bboxes[:, 0:2] + bboxes[:, 2:4]
+            bboxes[:, 0:4] *= self.image_size
+        else:
+            bboxes = torch.zeros(0, 5)
         # Below assumes 2 scale predictions (as paper) and same num of anchors per scale
         # targets = [torch.zeros((self.num_anchors_per_scale, S, S, 6)) for S in self.S]
         # for box in bboxes:
@@ -86,7 +94,6 @@ class YOLODataset(Dataset):
 
         #         elif not anchor_taken and iou_anchors[anchor_idx] > self.ignore_iou_thresh:
         #             targets[scale_idx][anchor_on_scale, i, j, 0] = -1  # ignore prediction
-
         return image, bboxes
 
 

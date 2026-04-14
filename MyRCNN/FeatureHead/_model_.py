@@ -59,6 +59,7 @@ class BoundingBoxRegression(Module):
             Sigmoid()
         )
         self.max = MaxChannelReLU()
+        self.channels = half_color_channels*2
     def forward(self, x: Tensor):
         wh: Tensor = self.bbx(x)
         B, C, H, W = x.shape
@@ -82,7 +83,9 @@ class BoundingBoxRegression(Module):
         score = self.max(score)
         w = self.max(w)
         h = self.max(h)
-        return cat([score, w, h], dim=1), stack([x1, y1, x2 ,y2, ps], dim=-1)
+        i = arange(B, device=x.device).view(B, 1).expand(B, self.channels)
+        bbox = stack([i, x1, y1, x2 ,y2, ps], dim=-1).view(-1, 6)
+        return cat([score, w, h], dim=1), bbox
        
     
 class FeatureHead(Module):

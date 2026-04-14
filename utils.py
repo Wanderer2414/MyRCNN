@@ -151,7 +151,7 @@ def mean_average_precision(
 
     # used for numerical stability later on
     epsilon = 1e-6
-
+    
     for c in range(num_classes):
         detections = []
         ground_truths = []

@@ -76,8 +76,8 @@ class Classification(Module):
         boundaries = boundary*mask
         B, C, H, W = color.shape
         color = color*mask
-        boundaries: Tensor = roi_align(boundary, [boxes], output_size) # type: ignore[assignment]
-        colors: Tensor = roi_align(color, [boxes], output_size) # type: ignore[assignment]
+        boundaries: Tensor = roi_align(boundary, boxes, output_size) # type: ignore[assignment]
+        colors: Tensor = roi_align(color, boxes, output_size) # type: ignore[assignment]
         mix = cat([boundaries.repeat(1, 40, 1, 1), colors], dim=1)
         cls: Tensor = self.cls(mix)
         return cls.squeeze(-1).squeeze(-1)
