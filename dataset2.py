@@ -25,22 +25,10 @@ class YOLODataset(Dataset):
         csv_file,
         img_dir,
         label_dir,
-        anchors,
-        image_size=320,
-        S=[13, 26],
-        C=20,
-        transform=None,
     ):
         self.annotations = pd.read_csv(csv_file)
         self.img_dir = img_dir
         self.label_dir = label_dir
-        self.image_size = image_size
-        self.transform = transform
-        self.S = S
-        self.anchors = torch.tensor(anchors[0] + anchors[1])  # for all 2 scales
-        self.num_anchors = self.anchors.shape[0]
-        self.num_anchors_per_scale = self.num_anchors // 2
-        self.C = C
         self.ignore_iou_thresh = 0.5
 
     def __len__(self):
@@ -51,11 +39,6 @@ class YOLODataset(Dataset):
         bboxes = np.roll(np.loadtxt(fname=label_path, delimiter=" ", ndmin=2), 4, axis=1).tolist()
         img_path = os.path.join(self.img_dir, self.annotations.iloc[index, 0])
         image = np.array(Image.open(img_path).convert("RGB"))
-
-        if self.transform:
-            augmentations = self.transform(image=image, bboxes=bboxes)
-            image = augmentations["image"]
-            bboxes = augmentations["bboxes"]
 
         # Below assumes 2 scale predictions (as paper) and same num of anchors per scale
         # targets = [torch.zeros((self.num_anchors_per_scale, S, S, 6)) for S in self.S]
@@ -88,40 +71,3 @@ class YOLODataset(Dataset):
         #             targets[scale_idx][anchor_on_scale, i, j, 0] = -1  # ignore prediction
 
         return image, bboxes
-
-
-def test():
-    anchors = config.ANCHORS
-
-    transform = config.test_transforms
-
-    dataset = YOLODataset(
-        config.TRAIN_DIR,
-        config.IMG_DIR,
-        config.LABEL_DIR,
-        S=[13, 26],
-        anchors=anchors,
-        transform=transform,
-    )
-    S = [13, 26]
-    scaled_anchors = torch.tensor(anchors) / (
-        1 / torch.tensor(S).unsqueeze(1).unsqueeze(1).repeat(1, 3, 2)
-    )
-    loader = DataLoader(dataset=dataset, batch_size=1, shuffle=True,)
-    for x, y in loader:
-        boxes = []
-
-        for i in range(len(S)):
-            anchor = scaled_anchors[i]
-            print(anchor.shape)
-            print(y[i].shape)
-            boxes += cells_to_bboxes(
-                y[i], is_preds=False, S=y[i].shape[2], anchors=anchor
-            )[0]
-        boxes = nms(boxes, iou_threshold=1, threshold=0.7, box_format="midpoint")
-        print(boxes)
-        plot_image(x[0].permute(1, 2, 0).to("cpu"), boxes)
-
-
-if __name__ == "__main__":
-    test()
