@@ -12,7 +12,6 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
-
 def iou_width_height(boxes1, boxes2):
     """
     Parameters:

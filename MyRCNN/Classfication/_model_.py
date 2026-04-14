@@ -1,48 +1,71 @@
-from torch.nn import Module, Conv2d, LeakyReLU,Sequential, BatchNorm2d, MaxPool2d
+from torch.nn import Module, Conv2d, LeakyReLU,Sequential, BatchNorm2d, MaxPool2d, AvgPool2d
 from torch import device, Tensor, cat
 from torchvision.ops import roi_align
+from Base import Merger, Repeat
 class Classification(Module):
     # 300 x 300 input
-    def __init__(self, boundary_channels: int, color_channels: int, num_classes: int, device: device = device("cpu")):
+    def __init__(self, mask_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
-        self.prepare_boundary = Sequential(
-            Conv2d(in_channels=boundary_channels, out_channels=boundary_channels, kernel_size=5, stride=1, padding=2, groups=boundary_channels, device=device),
-            MaxPool2d(kernel_size=5, stride=1, padding=2),
-            BatchNorm2d(boundary_channels, device=device),
-            LeakyReLU(),
-            Conv2d(in_channels=boundary_channels, out_channels=32, kernel_size=1, bias=False, device=device),
-        )
-        self.prepare_color = Conv2d(in_channels=color_channels, out_channels=8, kernel_size=1, bias=False, device=device)
-        self.channels = boundary_channels + color_channels
         self.cls = Sequential(
-            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 400x400
-            Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 200x200
-            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device), # 200x200
-            BatchNorm2d(40, device=device),
-            LeakyReLU(),
+            Merger((40, 3), 
+                   Sequential(
+                        Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 400x400
+                        Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 200x200
+                        Conv2d(in_channels=20, out_channels=37, kernel_size=1, bias=False, device=device), # 200x200
+                        BatchNorm2d(37, device=device),
+                        LeakyReLU(inplace=True),
+                    ),
+                   Sequential(
+                        AvgPool2d(kernel_size=2, stride=2),
+                        Repeat(2)
+                    )),
+            Merger((40, 3), 
+                   Sequential(
+                        Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device),
+                        Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 100x100
+                        Conv2d(in_channels=20, out_channels=37, kernel_size=1, bias=False, device=device),
+                        BatchNorm2d(37, device=device),
+                        LeakyReLU(inplace=True),
+                    ),
+                   Sequential(
+                        AvgPool2d(kernel_size=2, stride=2),
+                        Repeat(2)
+                    )),
+            Merger((40, 3), 
+                   Sequential(
+                        Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 100x100
+                        Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 50x50
+                        Conv2d(in_channels=20, out_channels=37, kernel_size=1, bias=False, device=device),
+                        BatchNorm2d(37, device=device),
+                        LeakyReLU(inplace=True),
+                    ),
+                   Sequential(
+                        AvgPool2d(kernel_size=2, stride=2),
+                        Repeat(2)
+                    )),
+            Merger((40, 3), 
+                   Sequential(
+                        Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 100x100
+                        Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 25x25
+                        Conv2d(in_channels=20, out_channels=37, kernel_size=1, bias=False, device=device),
+                        BatchNorm2d(37, device=device),
+                        LeakyReLU(inplace=True),
+                    ),
+                    AvgPool2d(kernel_size=2, stride=2),
+                    ),
             Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device),
-            Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 100x100
-            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
-            BatchNorm2d(40, device=device),
-            LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 100x100
-            Conv2d(in_channels=20, out_channels=20, kernel_size=4, stride=4, bias=False, groups=20, device=device), # 25x25
-            Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
-            BatchNorm2d(40, device=device),
-            LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 20x20
             Conv2d(in_channels=20, out_channels=20, kernel_size=5, stride=5, bias=False, groups=20, device=device), # 5x5
             Conv2d(in_channels=20, out_channels=40, kernel_size=1, bias=False, device=device),
-            BatchNorm2d(40, device=device),
             LeakyReLU(),
-            Conv2d(in_channels=40, out_channels=40, kernel_size=1, bias=False, device=device), # 5x5
             Conv2d(in_channels=40, out_channels=num_classes, kernel_size=5, device=device), 
         )
+        self.channels = mask_channels
         
-    def forward(self, mask: Tensor, color: Tensor, boxes: Tensor) -> Tensor:
+    def forward(self, boundary: Tensor, mask:Tensor,  color: Tensor, boxes: Tensor) -> Tensor:
         """_summary_
         Args:
-            mask (Tensor): [B, C, H, W]
+            boundary (Tensor): [B, C, H, W]
+            mask (Tensor): [B, C', H, W]
             color (Tensor): [B, C, H, W]
             boxes (Tensor): [N, 4] [[x1, y1, x2, y2]]
 
@@ -50,9 +73,15 @@ class Classification(Module):
             [N, nums] [score_1, ..., score_n]
         """
         output_size = (400, 400)
-        maskes: Tensor = roi_align(mask, [boxes], output_size)
-        colors: Tensor = roi_align(color, [boxes], output_size)
-        
-        mix = cat([self.prepare_boundary(maskes), self.prepare_color(colors)], dim=1)
+        boundaries = mask*boundary
+        B, C, H, W = color.shape
+        color = mask.unsqueeze(2)*color.unsqueeze(1)
+        color = color.reshape(color.shape[0], C*self.channels, color.shape[3], color.shape[4])
+        boundaries: Tensor = roi_align(mask*boundary, [boxes], output_size) # type: ignore[assignment]
+        boundaries = boundaries.max(dim=1, keepdim=True).values
+        colors: Tensor = roi_align(color, [boxes], output_size) # type: ignore[assignment]
+        colors = colors.view(-1, self.channels, C, colors.shape[-2], colors.shape[-1])
+        colors = colors.max(dim=1).values
+        mix = cat([boundaries.repeat(1, 40, 1, 1), colors], dim=1)
         cls: Tensor = self.cls(mix)
         return cls.squeeze(-1).squeeze(-1)

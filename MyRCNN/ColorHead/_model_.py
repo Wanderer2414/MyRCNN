@@ -54,7 +54,7 @@ class ColorHead(Module):
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)], device=device).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
-    def forward(self, x:Tensor) -> Tensor:
+    def forward(self, x:Tensor) -> tuple[Tensor, Tensor]:
         x = (((x*255)/16).round()*16)/256
         x = mode_pool2d(x, kernel_size=11, stride=1, padding=5)
         B, C, H, W = x.shape
@@ -66,7 +66,8 @@ class ColorHead(Module):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
             zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
             score = score + self.interpolate(zoomout)
+        mask = score
         score = self.ft(score)
         score = self.ft(score)
         score = self.ft(score)
-        return score/n
+        return mask, score/n

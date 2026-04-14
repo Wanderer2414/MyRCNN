@@ -11,9 +11,9 @@ from . import ColorHead, MaskHead, FeatureHead, Classfication
 from utils import non_max_suppression, mean_average_precision
 import os
 
-
-row = arange(400, dtype=tfloat, device="cuda").view(1,1,400,1).expand(1,1,400,400)
-col = arange(400, dtype=tfloat, device="cuda").view(1,1,1,400).expand(1,1,400,400)
+dev = "cuda"
+row = arange(400, dtype=tfloat, device=dev).view(1,1,400,1).expand(1,1,400,400)
+col = arange(400, dtype=tfloat, device=dev).view(1,1,1,400).expand(1,1,400,400)
 center_x = center_y = 200
 distance = ((col-center_x).square() + (row-center_y).square()).sqrt()
 target = distance.min(dim=1, keepdim=True).values
@@ -49,21 +49,21 @@ class MyRCNN(Module):
         self.mask = MaskHead.MaskHead(device=device)
         self.color = ColorHead.ColorHead(in_channels=3, half_out_channels=16, device=device)
         self.feat = FeatureHead.FeatureHead(half_color_channels=16, mask_channels=1, num_classes=100, device=device)
-    def forward(self, x:Tensor) -> tuple[Tensor,Tensor, Tensor, Tensor]:
-        mask: Tensor = self.mask(x)
-        color: Tensor = self.color(x)
-        score, bbx = self.feat(mask, color)
-        return mask, color, score, bbx
+    def forward(self, x:Tensor) -> tuple[Tensor, Tensor,Tensor, Tensor, Tensor]:
+        boundary: Tensor = self.mask(x)
+        mask, color = self.color(x)
+        score, bbx = self.feat(boundary, color)
+        return boundary, mask, color, score, bbx
 def MyBBLoss(scores: list[Tensor], labels: list[Tensor]) -> Tensor:
     C_gt = 0
     
     score_box = zeros(0, 1, 400, 400, device=scores[0].device)
     whs = zeros(0, 2, 400, 400, device=scores[0].device)
     for score, label in zip(scores, labels):
-        score_box = cat([score_box, roi_align(score[:, 0:1, :, :], [label[:, 0:4]], (400, 400))], dim=0)
+        score_box = cat([score_box, roi_align(score[:, 0:1, :, :], [label[:, 0:4]], (400, 400))], dim=0) # type: ignore[assignment]
         
         boxes = label[:, 0:4]
-        wh = roi_align(score[:, 1:3, :, :], [label[:, 0:4]], (400, 400))
+        wh = roi_align(score[:, 1:3, :, :], [label[:, 0:4]], (400, 400)) # type: ignore[assignment]
         w = boxes[:, 2] - boxes[:, 0]
         h = boxes[:, 3] - boxes[:, 1]
         N = label.shape[0]
@@ -130,21 +130,20 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     """_summary_
     Args:
         boxes (Tensor): [N, num_classes] []
-        label (Tensor): [1, 1, 5] [x1, y1, x2, y2, cls]
+        label (Tensor): [1, N, 5] [x1, y1, x2, y2, cls]
 
     Returns:
         Tensor: 
     """
     N = cls.shape[0]
-    cls_label = label[0, 0, -1].long()
-    cls_target = cls_label.expand(N)
-    loss = cross_entropy(cls, cls_target, reduction="mean")
+    cls_label = label[0, :, -1].long()
+    loss = cross_entropy(cls, cls_label, reduction="mean")
     return loss
 batch_size = 4
 class Model:
     def __init__(self, dt:Dataset, device: device = device("cpu")):
         self.model = MyRCNN(channels=3, device=device)
-        self.cls = Classfication.Classification(boundary_channels=1, color_channels=32, num_classes=dt.getClassSize(), device=device)
+        self.cls = Classfication.Classification(mask_channels=32, num_classes=dt.getClassSize(), device=device)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.opt2 = Adam(self.cls.parameters(), lr=1e-4)
         self.data = dt
@@ -174,19 +173,19 @@ class Model:
             epoches = 5
             for epoch in range(epoches):
                 for i in range(0, self.data.getTrainSize(), batch_size):
-                    tens = []
-                    label = []
+                    tens = [] # type: ignore[assignment]
+                    label = []# type: ignore[assignment]
                     out = []
                     for j in range(batch_size):
                         if (i+j>=self.data.getTrainSize()):
                             break
                         ten = self.data.getTrainTensor(i+j).to(self.device)
-                        tens.append(ten)
-                        label.append(x.getTrainLabel(i+j).to(self.device))
+                        tens.append(ten) # type: ignore[assignment]
+                        label.append(x.getTrainLabel(i+j).to(self.device)) # type: ignore[assignment]
                         out.append(self.model(ten)[-2])
                     # boxes = label[:, :, 1:].squeeze(0)
                     # cls = self.cls(mask, color, boxes)
-                    lss = MyBBLoss(out, label)
+                    lss = MyBBLoss(out, label) # type: ignore[assignment]
                     self.opt.zero_grad()
                     lss.backward()
                     self.opt.step()
@@ -198,33 +197,33 @@ class Model:
                     if (i%100 == 0):
                         save(self.model.state_dict(), "bbx.pth")
                 save(self.model.state_dict(), "bbx.pth")
-        if (os.path.exists("cls.pth")):
-            self.cls.load_state_dict(load("cls.pth", map_location=self.device))
-            print("Load model!")
-        else:
-            start = time()
-            epoches = 5
-            for epoch in range(epoches):
-                for i in range(self.data.getTrainSize()):
-                    tens:Tensor = self.data.getTrainTensor(i).to(self.device)
-                    label:Tensor =  self.data.getTrainLabel(i).unsqueeze(0).to(self.device)
-                    if (label.shape[1] == 0):
-                      continue
-                    mask, color, score, bbx = self.model(tens)
-                    boxes = label[:, :, 1:].squeeze(0)
-                    cls = self.cls(mask, color, boxes)
-                    lss = ClsLoss(cls, label)
-                    self.opt2.zero_grad()
-                    lss.backward()
-                    self.opt2.step()
-                    # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                    # if ((i+1) % (size//5) == 0):
-                    #     print(f"Saved: {(i+1)} / {size//5} progress")
-                    #     save(self.cls.state_dict(), "cls.pth")
-                    show_progress_counter(i+1, self.data.getTrainSize(), start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
-                    if (i%100 == 0):
-                        save(self.cls.state_dict(), "cls.pth")
-                save(self.cls.state_dict(), "cls.pth")
+        # if (os.path.exists("cls.pth")):
+        #     self.cls.load_state_dict(load("cls.pth", map_location=self.device))
+        #     print("Load model!")
+        # else:
+        start = time()
+        epoches = 5
+        for epoch in range(epoches):
+            for i in range(self.data.getTrainSize()):
+                tens:Tensor = self.data.getTrainTensor(i).to(self.device)
+                label:Tensor =  self.data.getTrainLabel(i).unsqueeze(0).to(self.device)
+                if (label.shape[1] == 0):
+                  continue
+                boundary, mask, color, score, bbx = self.model(tens)
+                boxes = label[:, :, 1:].squeeze(0)
+                cls = self.cls(boundary, mask, tens, boxes)
+                lss = ClsLoss(cls, label)
+                self.opt2.zero_grad()
+                lss.backward()
+                self.opt2.step()
+                # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+                # if ((i+1) % (size//5) == 0):
+                #     print(f"Saved: {(i+1)} / {size//5} progress")
+                #     save(self.cls.state_dict(), "cls.pth")
+                show_progress_counter(i+1, self.data.getTrainSize(), start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
+                if (i%100 == 0):
+                    save(self.cls.state_dict(), "cls.pth")
+            save(self.cls.state_dict(), "cls.pth")
     def Evaluate(self):
         ap = 0.0
         start = time()
