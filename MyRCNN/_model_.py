@@ -11,7 +11,7 @@ from . import ColorHead, MaskHead, FeatureHead, Classfication
 from utils import non_max_suppression, mean_average_precision
 import os
 
-dev = "cuda"
+dev = "cpu"
 row = arange(400, dtype=tfloat, device=dev).view(1,1,400,1).expand(1,1,400,400)
 col = arange(400, dtype=tfloat, device=dev).view(1,1,1,400).expand(1,1,400,400)
 center_x = center_y = 200
@@ -156,7 +156,7 @@ class Model:
         
     def train(self):
         start = time()
-        if (os.path.exists("bbx.pth") and False):
+        if (os.path.exists("bbx.pth")):
             self.model.load_state_dict(load("bbx.pth", map_location=self.device))
             print("Load model!")
         else:
@@ -177,7 +177,7 @@ class Model:
                     if (i%100 == 0):
                         save(self.model.state_dict(), "bbx.pth")
                 save(self.model.state_dict(), "bbx.pth")
-        if (os.path.exists("cls.pth") and False):
+        if (os.path.exists("cls.pth")):
             self.cls.load_state_dict(load("cls.pth", map_location=self.device))
             print("Load model!")
         else:

@@ -15,24 +15,20 @@ class Splitter(Module):
     def forward(self, x:Tensor) -> tuple[Tensor, ...]:
         return tuple(module(x) for module in self)
 class Parallel(Module):
-    def __init__(self, *modules: Module, loop: int = 1):
+    def __init__(self, *modules: Module):
         super().__init__()
         for idx, module in enumerate(modules):
             self.add_module(str(idx), module)
     def forward(self, *x: Tensor) -> tuple[Tensor, ...]:
         return tuple([module(i) for module, i in zip(self.modules(), x)])
 class Loop(Module):
-    def __init__(self, init: Callable[[], None], condition: Callable[[], bool], inc: Callable[[], None], func: Callable[[Tensor], Tensor]) -> None:
+    def __init__(self, module:Module, loop:int) -> None:
         super().__init__()
-        self.init = init
-        self.condition = condition
-        self.inc = inc
-        self.func = func
+        self.module = module
+        self.loop = loop
     def forward(self, x: Tensor) -> Tensor:
-        self.init()
-        while (self.condition):
-            x = self.func(x)
-            self.inc()
+        for i in range(self.loop):
+            x = self.module(x)
         return x
 class Merger(Module):
     _modules: dict[str, Module]  # type: ignore[assignment]
