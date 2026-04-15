@@ -3,8 +3,8 @@ import cv2
 import torch
 from albumentations.pytorch import ToTensorV2
 from utils import seed_everything
-CHOSEN_DATASET = "COCO" # or "PASCAL_VOC"
-DATASET = "../COCO" if CHOSEN_DATASET == "COCO" else "PASCAL_VOC"
+CHOSEN_DATASET = "PASCAL" # or "PASCAL_VOC"
+DATASET = "D:/Datasets/COCO" if CHOSEN_DATASET == "COCO" else "D:/Datasets/PASCAL_VOC"
 # DATASET = "/kaggle/input/datasets/the0bserver/mscoco/COCO" if CHOSEN_DATASET == "COCO" else "/kaggle/input/datasets/the0bserver/pascal/PASCAL_VOC"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # seed_everything()  # If you want deterministic behavior

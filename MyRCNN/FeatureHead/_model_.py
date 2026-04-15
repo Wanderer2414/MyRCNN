@@ -4,35 +4,47 @@ from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pa
 from torchvision.ops import roi_align, nms
 from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, MaxChannelReLU
 class WidthConv(Module):
-    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+    def __init__(self, in_channels: int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel = Parameter(tensor([[[[0.1]]]], device=device).repeat(1, 1, 1, kernel_size))
+        self.weight = Parameter(tensor(0.1, device=device).expand(in_channels, 1, 1, kernel_size).clone())
         self.stride = stride
         self.padding = padding
-        if (bias):
-            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
-        else:
-            self.bias = 0
+        self.groups = in_channels
+        self.bias = Parameter(tensor(0.0, dtype=tfloat, device=device).expand(in_channels)) if bias else None
         self.kernel_size = kernel_size
+
     def forward(self, x: Tensor) -> Tensor:
-        kernel = self.kernel.expand(x.shape[1], 1, 1, self.kernel_size)
-        return (conv2d(x, weight=kernel, stride=(1, self.stride), padding=(0, self.padding), groups=x.shape[1]) + self.bias)*x.shape[-1]
-    
+        out = conv2d(
+            x,
+            weight=self.weight,
+            bias=self.bias,
+            stride=(1, self.stride),
+            padding=(0, self.padding),
+            groups=self.groups
+        )
+        return out * x.shape[-1]
+
 
 class HeightConv(Module):
-    def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+    def __init__(self, in_channels: int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel = Parameter(tensor([[[[0.1]]]], device=device).repeat(1, 1, kernel_size, 1))
+        self.weight = Parameter(tensor(0.1, device=device).expand(in_channels, 1, kernel_size, 1).clone())
         self.stride = stride
         self.padding = padding
-        if (bias):
-            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
-        else:
-            self.bias = 0
+        self.groups = in_channels
+        self.bias = Parameter(tensor(0.0, dtype=tfloat, device=device).expand(in_channels)) if bias else None
         self.kernel_size = kernel_size
+
     def forward(self, x: Tensor) -> Tensor:
-        kernel = self.kernel.expand(x.shape[1], 1, self.kernel_size, 1)
-        return (conv2d(x, weight=kernel, stride=(self.stride, 1), padding=(self.padding, 0), groups=x.shape[1]) + self.bias)*x.shape[-2]
+        out = conv2d(
+            x,
+            weight=self.weight,
+            bias=self.bias,
+            stride=(self.stride, 1),
+            padding=(self.padding, 0),
+            groups=self.groups
+        )
+        return out * x.shape[-2]
 class ChannelNormalize(Module):
     def __init__(self):
         super().__init__()
@@ -47,12 +59,12 @@ class BoundingBoxRegression(Module):
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
         )
         self.width = Sequential(
-            WidthConv(kernel_size=11, stride=1, padding=5, device=device),
-            SharedConv(kernel_size=1, stride=1, bias=False, device=device),
+            WidthConv(in_channels=2*half_color_channels, kernel_size=11, padding=5, device=device),
+            SharedConv(in_channels=2*half_color_channels, kernel_size=1, stride=1, bias=False, device=device),
         )
         self.height = Sequential(
-            HeightConv(kernel_size=11, stride=1, padding=5, device=device),
-            SharedConv(kernel_size=1, stride=1, bias=False, device=device),
+            HeightConv(in_channels=2*half_color_channels, kernel_size=11, padding=5, device=device),
+            SharedConv(in_channels=2*half_color_channels, kernel_size=1, stride=1, bias=False, device=device),
         )
         self.score = Sequential(
             # BatchNorm2d(num_features=half_color_channels*2, device=device, affine=False),

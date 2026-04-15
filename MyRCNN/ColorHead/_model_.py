@@ -1,6 +1,7 @@
+import torch
 from torch.nn import Module, Conv2d, ReLU, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter, Sequential
 from torch import Tensor, device, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d
-from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
+from torch.nn.functional import interpolate, pad, unfold, avg_pool2d, max_pool2d, sigmoid, conv2d, relu
 from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, Stack
 from math import log, floor
 class ColorDownsample(Module):
@@ -19,13 +20,27 @@ class ModePool2d(Module):
     def forward(self,x: Tensor) -> Tensor:
         if self.padding > 0:
             x = pad(x, (self.padding, self.padding, self.padding, self.padding), mode="constant")
+        
         B, C, H, W = x.shape
         patches = unfold(x, kernel_size=self.kernel_size, stride=self.stride)
         patches = patches.view(B, C, self.kernel_size * self.kernel_size, -1)
-        median = patches.mode(dim=2).values
+
+        # 2. Convert to integer bins [0 to 16]
+        bins = (patches * 16.0).round().clamp(0.0, 16.0).to(torch.int64)
+
+        # 3. Build bin counts without expanding to a huge one-hot tensor
+        N = bins.shape[-1]
+        counts = zeros(B, C, 17, N, device=x.device, dtype=x.dtype)
+        counts.scatter_add_(2, bins, ones(bins.shape, dtype=x.dtype, device=x.device))
+
+        # 4. Extract mode values
+        mode_bins = counts.argmax(dim=2)
+        mode_vals = mode_bins.to(x.dtype) / 16.0
+
+        # 5. Reshape to output
         H_out = (H - self.kernel_size) // self.stride + 1
         W_out = (W - self.kernel_size) // self.stride + 1
-        return median.view(B, C, H_out, W_out)
+        return mode_vals.view(B, C, H_out, W_out)
         
         
 class ColorHead(Module):
@@ -45,23 +60,23 @@ class ColorHead(Module):
         )
         self.downgrade = Sequential(
             # Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=3, stride=3, padding=1, bias=False, device=device)
-            SharedConv(kernel_size=3, stride=3, padding=1, device=device)
+            SharedConv(in_channels=half_out_channels, kernel_size=3, stride=3, padding=1, device=device)
         )
         self.ft = Sequential(
             BatchNorm2d(half_out_channels*2, device=device),
             MaxLeakyReLU(scale=0.7, threshold=0.1),
             BatchNorm2d(half_out_channels*2, device=device),
-            EmphaseLocal(kernel_size=11, device=device)
+            EmphaseLocal(in_channels=half_out_channels*2, kernel_size=11, device=device)
         )
         self.interpolate = Sequential(
             Splitter(
                 Sequential(
-                    SharedConv(kernel_size=5, padding=2, device=device),
+                    SharedConv(in_channels=half_out_channels,kernel_size=5, padding=2, device=device),
                     BatchNorm2d(half_out_channels, device=device),
                     LeakyReLU(inplace=True)
                 ),
                 Sequential(
-                    SharedConv(kernel_size=5, padding=2, device=device),
+                    SharedConv(in_channels=half_out_channels, kernel_size=5, padding=2, device=device),
                     BatchNorm2d(half_out_channels, device=device),
                     LeakyReLU(inplace=True)
                 )
