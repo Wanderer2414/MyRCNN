@@ -1,26 +1,34 @@
+from typing_extensions import Self
+
 from torch.nn import Module, ModuleList, Sequential
 from torch import Tensor, stack, zeros, cat
 from typing import Callable, Iterator
 
 class Splitter(Module):
     _modules: dict[str, Module]  # type: ignore[assignment]
-    def __init__(self, *modules: Module):
+    def __init__(self, *modules: Module | None):
         super().__init__()
+        self._mmodule: list[Module | None] = []
         for idx, module in enumerate(modules):
-            self.add_module(str(idx), module)
+            if (not module is None):
+                self.add_module(str(idx), module)
+            self._mmodule.append(module)
             
     def __iter__(self) -> Iterator[Module]:
         return iter(self._modules.values())
 
-    def forward(self, x:Tensor) -> tuple[Tensor, ...]:
-        return tuple(module(x) for module in self)
+    def forward(self, x:Tensor) -> Tensor:
+        return cat([module(x) if (not module is None) else x for module in self._mmodule], dim=1)
 class Parallel(Module):
-    def __init__(self, *modules: Module):
+    def __init__(self, channels: int, module: Module):
         super().__init__()
-        for idx, module in enumerate(modules):
-            self.add_module(str(idx), module)
-    def forward(self, *x: Tensor) -> tuple[Tensor, ...]:
-        return tuple([module(i) for module, i in zip(self.modules(), x)])
+        self.module = module
+        self.channels = channels
+    def forward(self, x: Tensor) -> Tensor:
+        B, C, H, W = x.shape
+        x = x.view(-1, self.channels, H, W)
+        x = self.module(x)
+        return x.view(B, -1, H, W)
 class Loop(Module):
     def __init__(self, module:Module, loop:int) -> None:
         super().__init__()
@@ -32,11 +40,14 @@ class Loop(Module):
         return x
 class Merger(Module):
     _modules: dict[str, Module]  # type: ignore[assignment]
-    def __init__(self, num_channels: tuple[int,...], *submodules: Module):
+    def __init__(self, num_channels: tuple[int,...], *submodules: Module | None):
         super().__init__()
         self.num_channels = num_channels
+        self._mmodules: list[Module | None] = []
         for idx, module in enumerate(submodules):
-            self.add_module(str(idx), module)
+            if (not module is None):
+                self.add_module(str(idx), module)
+            self._mmodules.append(module)
     def __iter__(self) -> Iterator[Module]:
         return iter(self._modules.values())
     def __len__(self) -> int:
@@ -44,10 +55,12 @@ class Merger(Module):
     def forward(self, x: Tensor) -> Tensor:
         previous = 0
         output = []
-        for i, module in zip(self.num_channels, self):
+        for i, module in zip(self.num_channels, self._mmodules):
             sub = x[:, previous:previous+i, :, :]
-            output.append(module(sub))
+            output.append(module(sub) if (not module is None) else sub)
             previous += i
+        if (previous < x.shape[1]):
+            output.append(x[:, previous:, :, :])
         return cat(output, dim=1)
 class Repeat(Module):
     def __init__(self, num: int):
@@ -55,12 +68,26 @@ class Repeat(Module):
         self.num = num
     def forward(self, x:Tensor) -> Tensor:
         return x.repeat(1, self.num, 1, 1)
-class Stack(Module):
-    def __init__(self, dim: int = 0):
+class View(Module):
+    def __init__(self, channels: int, dim: int = 0):
         super().__init__()
         self.dim = dim
-    def forward(self, arg: tuple[Tensor, ...]) -> Tensor:
-        size = list[int](arg[0].shape)
-        size[self.dim] *= len(arg)
-        x = stack(arg, dim=self.dim)
-        return x.view(*size)
+        self.channels = channels
+    def forward(self, x:Tensor) -> Tensor:
+        B, C, H, W = x.shape
+        x = x.view(B, )
+        return x.view()
+class BranchTrainning(Module):
+    def __init__(self, tranning_module: Module | None, eval_module: Module | None):
+        super().__init__()
+        self.ls = [tranning_module, eval_module]
+        self.module = tranning_module
+    def train(self, mode: bool = True) -> Self:
+        super().train(mode)
+        self.module = self.ls[not self.training]
+        return self
+    def forward(self, x:Tensor) -> Tensor:
+        if (not self.module is None):
+            return self.module(x)
+        else:
+            return x

@@ -68,6 +68,7 @@ class MyRCNN(Module):
         for module in self:
             module.to(*args, **kwargs)
         return self
+    
     def forward(self, x:Tensor):
         color = self.color(x)
         if (self.training):
@@ -240,7 +241,7 @@ class Model(Module):
                     self.opt2.zero_grad()
                     lss.backward()
                     self.opt2.step()
-                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_cls_epoches}/{total_epoches}; Loss {lss}", epoch, self.bbx_epoches)
+                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_cls_epoches}/{total_epoches}; Loss {lss}", epoch, self.cls_epoches)
                     if (i%100 == 0):
                         save(self.cls.state_dict(), "cls.pth")
                 self.current_cls_epoches+=1

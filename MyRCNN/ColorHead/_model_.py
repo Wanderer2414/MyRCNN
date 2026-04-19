@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, ReLU, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter, Sequential
 from torch import Tensor, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d, argmax,bincount, int64
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
-from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, Stack, MinLeakyReLU
+from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, View, MinLeakyReLU
 from math import log, floor
 class ColorDownsample(Module):
     def __init__(self, down: int):
@@ -87,4 +87,4 @@ class ColorHead(Module):
         # score = self.ft(score)
         # score = self.ft(score)
         # score = self.max(score)
-        return score/n
+        return score
