@@ -1,8 +1,9 @@
 from torch.nn import Module, Conv2d, Sequential, ReLU, MaxPool2d, Linear, NLLLoss
 from torch import Tensor, device, save, tensor, arange, zeros, bool as tbool, exp, long as tlong, cat, maximum,float as tfloat, zeros_like, load, stack, sigmoid, floor, int64, where, sort, tensor_split, ones, no_grad, softmax
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
-from torchvision.ops import complete_box_iou_loss, roi_align
+from torchvision.ops import distance_box_iou_loss, roi_align
 from torch.optim import Adam
+from torch.nn.utils import clip_grad_norm_
 from typing import Callable
 from time import time
 from torch.utils.data import DataLoader
@@ -78,13 +79,20 @@ class MyRCNN(Module):
 def MyBBLoss(scores: Tensor, labels: Tensor) -> Tensor:
     C_gt = 0
     score_box = roi_align(scores[:, 0:1, :, :], labels[:, 0:5], (400, 400))  # type: ignore[assignment]
-    boxes = labels[:, 1:5]
     wh = roi_align(scores[:, 1:3, :, :], labels[:, 0:5], (400, 400)) # type: ignore[assignment]
     C_gt = score_box.shape[0]
     
     score =  binary_cross_entropy_with_logits(score_box, target.expand(C_gt, 1, 400, 400))
 
-    
+    x1_gt = labels[:, 1]
+    y1_gt = labels[:, 2]
+    x2_gt = labels[:, 3]
+    y2_gt = labels[:, 4]
+    w_gt = (x2_gt - x1_gt).view(wh.shape[0], 1, 1, 1)
+    h_gt = (y2_gt - y1_gt).view(wh.shape[0], 1, 1, 1)
+    w = wh[:, 0:1, :, :]/(w_gt+1e-7)
+    h = wh[:, 1:2, :, :]/(h_gt+1e-7)
+    wh = cat([w,h],dim=1)
     FIoULoss = FIoU(score_box, wh)
     return score + FIoULoss
     return score
@@ -99,24 +107,29 @@ def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
         Tensor: _description_
     """
     H, W = score.shape[-2:]
-    w = wh[:, 0:1, :, :]
-    h = wh[:, 1:2, :, :]
+    w = wh[:, 0:1, :, :]*400
+    h = wh[:, 1:2, :, :]*400
     
     indices = (sigmoid(score) > 0.8) * score
     N = score.shape[0]
     count = indices.view(N, -1).sum(dim=-1, keepdim=True).view(N, 1, 1, 1)
     indices = indices/(count+eps)
-    x = arange(W, dtype=tfloat, device=score.device).view(1, 1, 1, W).expand(1, 1, H, W) / W
-    y = arange(H, dtype=tfloat, device=score.device).view(1, 1, H, 1).expand(1, 1, H, W) / H
+    x = arange(W, dtype=tfloat, device=score.device).view(1, 1, 1, W).expand(1, 1, H, W)
+    y = arange(H, dtype=tfloat, device=score.device).view(1, 1, H, 1).expand(1, 1, H, W)
     
     pred_w = (w*indices).sum(dim=(-2, -1))
     pred_h = (h*indices).sum(dim=(-2, -1))
     pred_x = (x*indices).sum(dim=(-2, -1))
     pred_y = (y*indices).sum(dim=(-2, -1))
-    pred = cat([pred_x, pred_y, pred_w, pred_h], dim=1)
-    N = pred.shape[0]
-    target= ones(N, 4, device=score.device) * 0.5
-    loss = binary_cross_entropy_with_logits(pred, target)
+    pred_x1 = pred_x - pred_w/2
+    pred_x2 = pred_x + pred_w/2
+    pred_y1 = pred_y - pred_h/2
+    pred_y2 = pred_y + pred_h/2
+    boxes = cat([pred_x1, pred_y1, pred_x2, pred_y2], dim=1)
+    target = tensor([[0, 0, 400, 400]], device=score.device).expand(boxes.shape[0], 4)
+    # print(boxes)
+    # print(target)
+    loss = distance_box_iou_loss(boxes,target, reduction="mean")
     return loss
 
 def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
@@ -156,6 +169,8 @@ class Model(Module):
         self.cls = Classfication.Classification(mask_channels=32, num_classes=config.NUM_CLASSES)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.opt2 = Adam(self.cls.parameters(), lr=1e-4)
+        clip_grad_norm_(self.model.parameters(), max_norm=1.0) 
+        clip_grad_norm_(self.cls.parameters(), max_norm=1.0) 
         self.current_bbx_epoches = 0
         self.current_cls_epoches = 0
         self.bbx_epoches = bbx_epoches
@@ -197,6 +212,7 @@ class Model(Module):
             start = time()
             self.model.train()
             data_size = len(self.loader)
+            total_epoches = self.current_bbx_epoches + self.bbx_epoches
             for epoch in range(self.bbx_epoches):
                 for i, (tens, labels) in enumerate(self.loader):
                     score = self.model(tens.to(self.device))
@@ -204,7 +220,7 @@ class Model(Module):
                     self.opt.zero_grad()
                     lss.backward()
                     self.opt.step()
-                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_bbx_epoches}/{self.current_bbx_epoches+self.bbx_epoches}; Loss {lss}", epoch, self.bbx_epoches)
+                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_bbx_epoches}/{total_epoches}; Loss {lss}", epoch, self.bbx_epoches)
                     if (i%100 == 0):
                         save(self.model.state_dict(), "bbx.pth")
                 self.current_bbx_epoches += 1
@@ -212,6 +228,7 @@ class Model(Module):
             self.model.eval()
             start = time()
             data_size = len(self.loader)
+            total_epoches = self.current_cls_epoches + self.cls_epoches
             for epoch in range(self.cls_epoches):
                 for i, (tens, labels) in enumerate(self.loader):
                     tens = tens.to(self.device)
@@ -223,13 +240,13 @@ class Model(Module):
                     self.opt2.zero_grad()
                     lss.backward()
                     self.opt2.step()
-                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_cls_epoches}/{self.current_cls_epoches+self.cls_epoches}; Loss {lss}", epoch, self.bbx_epoches)
+                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_cls_epoches}/{total_epoches}; Loss {lss}", epoch, self.bbx_epoches)
                     if (i%100 == 0):
                         save(self.cls.state_dict(), "cls.pth")
                 self.current_cls_epoches+=1
                 save(self.cls.state_dict(), "cls.pth")
         else:
-            data = YOLODataset(config.TEST_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.train_transforms)
+            data = YOLODataset(config.TEST_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.test_transforms)
             self.loader = DataLoader(data, batch_size=1, num_workers=1, collate_fn=collect_fn);
             
         #     self.model.train()
@@ -251,13 +268,13 @@ class Model(Module):
     def forward(self, x:Tensor) -> Tensor:
         boundary, score, bbx = self.model(x)
         cls:Tensor = self.cls(boundary, score[:, 0:1, :, :], x, bbx[:, :-1])
-        cls_score:Tensor = softmax(cls, dim=-1)
-        cls_score = cls * bbx[:, -1:]
-        cls_score = cls_score.unsqueeze(-1)
-        N = cls.shape[0]
-        cls_range = arange(self.num_classes, device=x.device).view(1, self.num_classes, 1).expand(N, self.num_classes, 1)
-        batch = bbx[:, 0:1].view(N, 1, 1).expand(N, self.num_classes, 1)
-        bbx = bbx[:, 1:5].view(N, 1, 4).expand(N, self.num_classes, 4)
-        result = cat([batch, cls_range, cls_score, bbx], dim=-1).view(N*self.num_classes, 7)
-        return result
+        # cls_score:Tensor = softmax(cls, dim=-1)
+        # cls_score = cls * bbx[:, -1:]
+        # cls_score = cls_score.unsqueeze(-1)
+        # N = cls.shape[0]
+        # cls_range = arange(self.num_classes, device=x.device).view(1, self.num_classes, 1).expand(N, self.num_classes, 1)
+        # batch = bbx[:, 0:1].view(N, 1, 1).expand(N, self.num_classes, 1)
+        # bbx = bbx[:, 1:5].view(N, 1, 4).expand(N, self.num_classes, 4)
+        # result = cat([batch, cls_range, cls_score, bbx], dim=-1).view(N*self.num_classes, 7)
+        return cls
         

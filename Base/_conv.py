@@ -2,7 +2,7 @@
 from typing_extensions import Self
 
 from torch.nn import Module, Parameter
-from torch import tensor, Tensor, device, float as tfloat, sigmoid, conv2d, where, amax
+from torch import tensor, Tensor, device, float as tfloat, sigmoid, conv2d, where, amax, amin
 class SharedConv(Module):
     def __init__(self, channels: int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
@@ -44,13 +44,30 @@ class MaxLeakyReLU(Module):
         M = amax(score, dim=(-2, -1), keepdim=True) - self.threshold
         M = M.expand(B, C, H, W)
         alt = x*self.scale
-        return where(score>=M, x, alt)
+        result =  where(score>=M, x, alt)
+        return result
         
+class MinLeakyReLU(Module):
+    def __init__(self, threshold: float = 0.1, scale: float = 0.01):
+        super().__init__()
+        self.threshold = threshold
+        self.scale = scale
+    def forward(self, x:Tensor) -> Tensor:
+        B, C, H, W = x.shape
+        score = sigmoid(x)
+        M = amin(score, dim=(-2, -1), keepdim=True) + self.threshold
+        M = M.expand(B, C, H, W)
+        alt = x*self.scale
+        result =  where(score<=M, x, alt)
+        return result
 
 class MaxChannelReLU(Module):
     def __init__(self, scale: float = 0.01):
         super().__init__()
         self.scale = scale
     def forward(self, x:Tensor) -> Tensor:
-        return x.mean(dim=1, keepdim=True)*self.scale + (1-self.scale)*x.max(dim=1, keepdim=True).values
+        if (self.training):
+            return x.mean(dim=1, keepdim=True)*self.scale + (1-self.scale)*x.max(dim=1, keepdim=True).values
+        else:
+            return x.max(dim=1, keepdim=True).values
     

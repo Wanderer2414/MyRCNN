@@ -2,6 +2,7 @@ from torch.nn import Module, Conv2d, LeakyReLU,Sequential, BatchNorm2d, MaxPool2
 from torch import device, Tensor, cat
 from torchvision.ops import roi_align
 from Base import Merger, Repeat
+
 class Classification(Module):
     # 300 x 300 input
     def __init__(self, mask_channels: int, num_classes: int):
@@ -72,11 +73,10 @@ class Classification(Module):
         Returns:
             [N, nums] [score_1, ..., score_n]
         """
-        output_size = (400, 400)
         boundaries = boundary*mask
         color = color*mask
-        boundaries: Tensor = roi_align(boundary, boxes, output_size) # type: ignore[assignment]
-        colors: Tensor = roi_align(color, boxes, output_size) # type: ignore[assignment]
+        boundaries: Tensor = roi_align(input=boundary, boxes=boxes, output_size=(400, 400))
+        colors: Tensor = roi_align(color, boxes, output_size=(400, 400))
         mix = cat([boundaries.repeat(1, 40, 1, 1), colors], dim=1)
         cls: Tensor = self.cls(mix)
         # cls = cat([cls, boxes])

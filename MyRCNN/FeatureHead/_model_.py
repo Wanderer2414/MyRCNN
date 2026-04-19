@@ -1,9 +1,8 @@
 from typing_extensions import Self
 
 from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d, Sigmoid
-from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum, split, cdist, int64, floor, sort, tensor_split, amax
+from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum, split, cdist, int64, floor, sort, tensor_split, amax, ones, amin
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
-from torchvision.ops import roi_align, nms
 from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, MaxChannelReLU
 class WidthConv(Module):
     def __init__(self, channels:int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
@@ -59,16 +58,18 @@ class ChannelNormalize(Module):
         M = x.detach().max(dim=-1, keepdim=True).values.max(dim=-2, keepdim=True).values.expand(B, C, H, W)
         return x/M*x.detach().max()
 class BoundingBoxRegression(Module):
-    def __init__(self, batch:int, half_color_channels: int, device: device = device("cpu")):
+    def __init__(self, batch:int, half_color_channels: int):
         super().__init__()
         self.bbx = Sequential(
             Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False)
         )
         self.width = Sequential(
-            WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5)
+            WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5),
+            LeakyReLU(inplace=True)
         )
         self.height = Sequential(
-            HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5)
+            HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5),
+            LeakyReLU(inplace=True)
         )
         self.score = Sequential(
             # BatchNorm2d(num_features=half_color_channels*2, affine=False),
@@ -76,38 +77,44 @@ class BoundingBoxRegression(Module):
         )
         self.max = MaxChannelReLU()
         self.channels = half_color_channels*2
+        self.batch = batch
+    # def to(self, *args, **kwargs):
+    #     super().to(*args, **kwargs)
+    #     super().to(*args, **kwargs)
+    #     device = kwargs.get("device", None)
+    #     if device is None and len(args) > 0:
+    #         device = args[0]
+    #     if (self.training):
+    #         self.batch_idx = self.batch_idx.to(device)
+    #     return self
     def forward(self, x: Tensor):
         wh: Tensor = self.bbx(x)
         B, C, H, W = x.shape
-        w = self.width(wh)
+        w: Tensor = self.width(wh)
+        # w = w - amin(w, dim=(-2, -1) , keepdim=True)
         h = self.height(wh)
-        # w = (sigmoid(w)-0.5)*W
-        # h = (sigmoid(h)-0.5)*H
+        # h = h - amin(h, dim=(-2, -1) , keepdim=True)
+        
         sx = self.score(x)
         M = amax(sx, dim=(-2, -1), keepdim=True).expand(B, C, H, W) - 0.01
         score: Tensor = x*(sx>M)
+        swh = cat([self.max(score), self.max(w), self.max(h)], dim=1)
         if (self.training):
-            score = self.max(score)
-            w = self.max(w)
-            h = self.max(h)
-            return cat([score, w, h], dim=1)
+            return swh
         else:
-            S = score.sum(dim=(-2,-1), keepdim=True)
-            ws = (w*score/S).sum(dim=(-2,-1))
-            hs = (h*score/S).sum(dim=(-2,-1))
-            ps = amax(sx, dim=(-2, -1))
-            col = arange(W, device=x.device).view(1, 1, 1, W).expand(B, 1, H, W)
-            row = arange(H, device=x.device).view(1, 1, H, 1).expand(B, 1, H, W)
-            x1 = (col*score/S).sum(dim=(-2, -1)) - ws/2
-            y1 = (row*score/S).sum(dim=(-2, -1)) - hs/2
-            x2 = x1 + ws
-            y2 = y1 + hs
-            score = self.max(score)
-            w = self.max(w)
-            h = self.max(h)
-            i = arange(B, device=x.device).view(B, 1).expand(B, self.channels)
+            score = score/score.sum(dim=(-2,-1), keepdim=True)
+            ws = (w*score).sum(dim=(-2,-1))
+            hs = (h*score).sum(dim=(-2,-1))
+            ps = (sx*score).sum(dim=(-2,-1))
+            i = arange(B,device=x.device).view(B, 1).expand(B, self.channels)
+            col = (arange(W, device=x.device).view(1, 1, 1, W).expand(B, 1, H, W)*score).sum(dim=(-2, -1))
+            row = (arange(H, device=x.device).view(1, 1, H, 1).expand(B, 1, H, W)*score).sum(dim=(-2, -1))
+            x1 =  col - ws/2
+            y1 =  row - hs/2
+            x2 = col + ws/2
+            y2 = row + hs/2
             bbox = stack([i, x1, y1, x2 ,y2, ps], dim=-1).view(-1, 6)
-            return  cat([score, w, h], dim=1), bbox
+            return  swh, bbox
        
     
 class FeatureHead(Module):
@@ -125,43 +132,3 @@ class FeatureHead(Module):
         else:
             score, bbx = self.bbx(color) # [B, SWH, H, W]
             return score, bbx
-        # B, C, H, W = color.shape
-        # score = bbx[:,0:1,:,:]
-        # y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)
-        # x = arange(W, dtype=tfloat, device=mask.device).view(1, 1, 1, W).expand(B, 1, H, W).reshape(B, -1, 1)
-        # bbx_flat = bbx.permute(0, 2, 3, 1).reshape(B, -1, 3)
-        # score_flat = bbx_flat[:,:,0:1]
-        # w = bbx_flat[:,:,1:2]
-        # h = bbx_flat[:,:,2:3]
-        # mask = (score_flat>0.8) & (w>5) & (h>5)
-
-        # cx = x = x[mask]
-        # cy = y = y[mask]
-        # w = w[mask]
-        # h = h[mask]
-        
-        # s = score_flat[mask]
-        # x1 = (x-w).floor()
-        # x2 = (x+w).ceil()
-        # y1 = (y-h).floor()
-        # y2 = (y+h).ceil()
-        
-        # out = stack([x1,y1,x2,y2],dim=-1)
-        # box = nms(out, s, 0.5)
-        # out = cat([s.unsqueeze(-1), out], dim=-1)
-        # distance = stack([cx, cy], dim=-1)
-        # out = getnear(out, distance, 3)
-        # N = out.shape[0]
-        # current = 0
-        # result = zeros(0, 5)
-        # for i in range(1, N):
-        #     distance = ((cx[i] - cx[current]).square() + (cy[i] - cy[current]).square()).sqrt()
-        #     if (distance > 10):
-        #         out[current] /= (i-current)
-        #         result = cat([result, out[current].unsqueeze(0)], dim=0)
-        #         current = i
-        #     else: out[current] = out[current] + out[i]
-        # out[current] /= N-current
-        # result = cat([result, out[current].unsqueeze(0)], dim=0).unsqueeze(0)
-        
-        return [score, out.unsqueeze(0)]
