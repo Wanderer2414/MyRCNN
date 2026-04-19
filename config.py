@@ -2,14 +2,14 @@ import albumentations as A
 import cv2
 import torch
 from albumentations.pytorch import ToTensorV2
-from utils import seed_everything
-CHOSEN_DATASET = "COCO" # or "PASCAL_VOC"
-DATASET = "../COCO" if CHOSEN_DATASET == "COCO" else "PASCAL_VOC"
+# from utils import seed_everything
+CHOSEN_DATASET = "PASCAL_VOC" # or "PASCAL_VOC"
+DATASET = "/home/wanderer2414/" + CHOSEN_DATASET
 # DATASET = "/kaggle/input/datasets/the0bserver/mscoco/COCO" if CHOSEN_DATASET == "COCO" else "/kaggle/input/datasets/the0bserver/pascal/PASCAL_VOC"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # seed_everything()  # If you want deterministic behavior
 NUM_WORKERS = 4
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 IMAGE_SIZE = 320
 NUM_CLASSES = 80 if CHOSEN_DATASET == "COCO" else 20
 LEARNING_RATE = 0.001

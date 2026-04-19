@@ -54,7 +54,9 @@ def show_progress_counter(
     current: int,
     total: int,
     start_time: float,
-    message: str
+    message: str,
+    current_epoch: int,
+    total_epoches: int
 ) -> None:
     """
     Display progress filling the terminal width:
@@ -62,7 +64,7 @@ def show_progress_counter(
     """
 
     term_width = shutil.get_terminal_size(fallback=(120, 20)).columns
-    elapsed = math.ceil((time.time() - start_time)/current*(total - current)) if (current < total) else math.ceil(time.time()-start_time)
+    elapsed = math.ceil((time.time() - start_time)/(current + current_epoch*total)*(total*total_epoches - current_epoch*total - current)) if (current < total) else math.ceil(time.time()-start_time)
     h, rem = divmod(elapsed, 3600)
     m, s = divmod(rem, 60)
     time_str = f"[{h:02d}:{m:02d}:{s:02d}]"

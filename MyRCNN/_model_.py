@@ -59,23 +59,22 @@ class MyRCNN(Module):
         return len(self._modules)
     
     def to(self, *args, **kwargs):
-        module = super().to(*args, **kwargs)
+        super().to(*args, **kwargs)
         device = kwargs.get("device", None)
         if device is None and len(args) > 0:
             device = args[0]
         self.device = device
         for module in self:
             module.to(*args, **kwargs)
-        return module
+        return self
     def forward(self, x:Tensor):
-        boundary: Tensor = self.mask(x)
         color = self.color(x)
-        # if (self.training):
-        score = self.feat(boundary, color)
-        return boundary, score
-        # else: 
-            # score, bbx = self.feat(boundary, color)
-            # return boundary, score, bbx
+        if (self.training):
+            return self.feat(color)
+        else: 
+            boundary: Tensor = self.mask(x)
+            score, bbx = self.feat(color)
+            return boundary, score, bbx
 def MyBBLoss(scores: Tensor, labels: Tensor) -> Tensor:
     C_gt = 0
     score_box = roi_align(scores[:, 0:1, :, :], labels[:, 0:5], (400, 400))  # type: ignore[assignment]
@@ -151,17 +150,17 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     return loss
 class Model(Module):
     _modules: dict[str, Module] # type:ignore
-    def __init__(self, dataset: str):
+    def __init__(self, bbx_epoches: int =1, cls_epoches: int = 1):
         super().__init__()
-        if (dataset == "Pascal"):
-            num_classes = len(config.PASCAL_CLASSES)
-            self.model = MyRCNN(config.BATCH_SIZE,channels=3, num_classes=num_classes)
-            self.cls = Classfication.Classification(mask_channels=32, num_classes=num_classes)
+        self.model = MyRCNN(config.BATCH_SIZE,channels=3, num_classes=config.NUM_CLASSES)
+        self.cls = Classfication.Classification(mask_channels=32, num_classes=config.NUM_CLASSES)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.opt2 = Adam(self.cls.parameters(), lr=1e-4)
-        self.current_epoches = 0
-        self.dataset = dataset
-        self.device = device("cpu")
+        self.current_bbx_epoches = 0
+        self.current_cls_epoches = 0
+        self.bbx_epoches = bbx_epoches
+        self.cls_epoches = cls_epoches
+        self.num_classes = config.NUM_CLASSES
     def __iter__(self) -> Iterator[Module]:
         return iter(self._modules.values())
     def __len__(self):
@@ -192,52 +191,73 @@ class Model(Module):
     def train(self, mode: bool = True):
         super().train(mode)
         if (mode):
-            if (self.dataset == "Pascal"):
-                train_data = YOLODataset(config.TRAIN_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.train_transforms)
-                train_loader = DataLoader(train_data, batch_size=config.BATCH_SIZE, collate_fn=collect_fn, num_workers=config.NUM_WORKERS);
-                start = time()
-                data_size = len(train_loader)
-                for i, (tens, labels) in enumerate(train_loader):
-                    boundary, score = self.model(tens.to(self.device))
+            data = YOLODataset(config.TRAIN_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.train_transforms)
+            self.loader = DataLoader(data, batch_size=config.BATCH_SIZE, collate_fn=collect_fn, num_workers=config.NUM_WORKERS);
+            
+            start = time()
+            self.model.train()
+            data_size = len(self.loader)
+            for epoch in range(self.bbx_epoches):
+                for i, (tens, labels) in enumerate(self.loader):
+                    score = self.model(tens.to(self.device))
                     lss = MyBBLoss(score, labels.to(self.device))
                     self.opt.zero_grad()
                     lss.backward()
                     self.opt.step()
-                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_epoches}/{self.current_epoches+1}; Loss {lss}")
+                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_bbx_epoches}/{self.current_bbx_epoches+self.bbx_epoches}; Loss {lss}", epoch, self.bbx_epoches)
                     if (i%100 == 0):
                         save(self.model.state_dict(), "bbx.pth")
+                self.current_bbx_epoches += 1
                 save(self.model.state_dict(), "bbx.pth")
-                start = time()
-                data_size = len(train_loader)
-                for i, (tens, labels) in enumerate(train_loader):
+            self.model.eval()
+            start = time()
+            data_size = len(self.loader)
+            for epoch in range(self.cls_epoches):
+                for i, (tens, labels) in enumerate(self.loader):
                     tens = tens.to(self.device)
                     labels = labels.to(self.device)
-                    boundary, score = self.model(tens)
+                    boundary, score, bbx = self.model(tens)
                     boxes = labels[:, 0:5]
                     cls = self.cls(boundary, score[:, 0:1, :, :], tens, boxes)
                     lss = ClsLoss(cls, labels)
                     self.opt2.zero_grad()
                     lss.backward()
                     self.opt2.step()
-                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_epoches}/{self.current_epoches+1}; Loss {lss}")
+                    show_progress_counter(i+1, data_size, start, f"Epoch {self.current_cls_epoches}/{self.current_cls_epoches+self.cls_epoches}; Loss {lss}", epoch, self.bbx_epoches)
                     if (i%100 == 0):
                         save(self.cls.state_dict(), "cls.pth")
+                self.current_cls_epoches+=1
                 save(self.cls.state_dict(), "cls.pth")
         else:
-            if (self.dataset == "Pascal"):
-                test_data = YOLODataset(config.TEST_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.train_transforms)
-                test_loader = DataLoader(test_data, batch_size=config.BATCH_SIZE, num_workers=config.NUM_WORKERS, collate_fn=collect_fn);
-                ap = 0.0
-                start = time()
-                data_size = len(test_loader)
-                for i,(tens, labels) in enumerate(test_loader):
-                    pred = self.inference(len(config.PASCAL_CLASSES), tens)
-                    labels = labels.to(self.device)
-                    former = labels[:, :1]
-                    latter = labels[:, 1:-1]
-                    cls = labels[:, -1:]
-                    labels = cat([former, cls, ones(labels.shape[0], 1, device=self.device), latter], dim=-1)
-                    ap += mean_average_precision(pred.tolist(), labels.tolist(), num_classes=len(config.PASCAL_CLASSES))
-                    show_progress_counter(i+1, data_size, start, f"mAP: {ap/(i+1)}")
-                print(f"mAP: {ap/data_size}")
+            data = YOLODataset(config.TEST_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.train_transforms)
+            self.loader = DataLoader(data, batch_size=1, num_workers=1, collate_fn=collect_fn);
+            
+        #     self.model.train()
+        #     self.cls.train()
+        #     ap = 0.0
+        #     start = time()
+        #     data_size = len(self.loader)
+        #     for i,(tens, labels) in enumerate(self.loader):
+        #         pred = self.inference(config.NUM_CLASSES, tens)
+        #         labels = labels.to(self.device)
+        #         former = labels[:, :1]
+        #         latter = labels[:, 1:-1]
+        #         cls = labels[:, -1:]
+        #         labels = cat([former, cls, ones(labels.shape[0], 1, device=self.device), latter], dim=-1)
+        #         ap += mean_average_precision(pred.tolist(), labels.tolist(), num_classes=config.NUM_CLASSES)
+        #         show_progress_counter(i+1, data_size, start, f"mAP: {ap/(i+1)}", 0, 1)
+        #     print(f"mAP: {ap/data_size}")
         return self
+    def forward(self, x:Tensor) -> Tensor:
+        boundary, score, bbx = self.model(x)
+        cls:Tensor = self.cls(boundary, score[:, 0:1, :, :], x, bbx[:, :-1])
+        cls_score:Tensor = softmax(cls, dim=-1)
+        cls_score = cls * bbx[:, -1:]
+        cls_score = cls_score.unsqueeze(-1)
+        N = cls.shape[0]
+        cls_range = arange(self.num_classes, device=x.device).view(1, self.num_classes, 1).expand(N, self.num_classes, 1)
+        batch = bbx[:, 0:1].view(N, 1, 1).expand(N, self.num_classes, 1)
+        bbx = bbx[:, 1:5].view(N, 1, 4).expand(N, self.num_classes, 4)
+        result = cat([batch, cls_range, cls_score, bbx], dim=-1).view(N*self.num_classes, 7)
+        return result
+        

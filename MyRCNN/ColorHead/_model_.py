@@ -46,23 +46,23 @@ class ColorHead(Module):
         )
         self.downgrade = Sequential(
             # Conv2d(in_channels=half_out_channels, out_channels=half_out_channels, kernel_size=3, stride=3, padding=1, bias=False)
-            SharedConv(batch, kernel_size=3, stride=3, padding=1)
+            SharedConv(half_out_channels, kernel_size=3, stride=3, padding=1)
         )
         self.ft = Sequential(
             BatchNorm2d(half_out_channels*2),
             MaxLeakyReLU(scale=0.7, threshold=0.1),
             BatchNorm2d(half_out_channels*2),
-            EmphaseLocal(batch, kernel_size=11)
+            EmphaseLocal(half_out_channels*2, kernel_size=11)
         )
         self.interpolate = Sequential(
             Splitter(
                 Sequential(
-                    SharedConv(batch, kernel_size=5, padding=2),
+                    SharedConv(half_out_channels, kernel_size=5, padding=2),
                     BatchNorm2d(half_out_channels),
                     LeakyReLU(inplace=True)
                 ),
                 Sequential(
-                    SharedConv(batch, kernel_size=5, padding=2),
+                    SharedConv(half_out_channels, kernel_size=5, padding=2),
                     BatchNorm2d(half_out_channels),
                     LeakyReLU(inplace=True)
                 )
