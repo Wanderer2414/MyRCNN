@@ -1,13 +1,13 @@
 from torch.nn import Module, Conv2d, LeakyReLU,Sequential, BatchNorm2d, MaxPool2d, AvgPool2d
 from torch import device, Tensor, cat
 from torchvision.ops import roi_align
-from Base import Merger, Repeat
+from Base import Splitter, Expand
 class Classification(Module):
     # 300 x 300 input
     def __init__(self, mask_channels: int, num_classes: int, device: device = device("cpu")):
         super().__init__()
         self.cls = Sequential(
-            Merger((40, 3), 
+            Splitter((40, 3), 
                    Sequential(
                         Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 400x400
                         Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 200x200
@@ -17,9 +17,9 @@ class Classification(Module):
                     ),
                    Sequential(
                         AvgPool2d(kernel_size=2, stride=2),
-                        Repeat(2)
+                        Expand(in_channels=3, out_channels=6)
                     )),
-            Merger((40, 3), 
+            Splitter((40, 3), 
                    Sequential(
                         Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device),
                         Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 100x100
@@ -29,9 +29,9 @@ class Classification(Module):
                     ),
                    Sequential(
                         AvgPool2d(kernel_size=2, stride=2),
-                        Repeat(2)
+                        Expand(in_channels=3, out_channels=6)
                     )),
-            Merger((40, 3), 
+            Splitter((40, 3), 
                    Sequential(
                         Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 100x100
                         Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 50x50
@@ -41,9 +41,9 @@ class Classification(Module):
                     ),
                    Sequential(
                         AvgPool2d(kernel_size=2, stride=2),
-                        Repeat(2)
+                        Expand(in_channels=3, out_channels=6)
                     )),
-            Merger((40, 3), 
+            Splitter((40, 3), 
                    Sequential(
                         Conv2d(in_channels=40, out_channels=20, kernel_size=1, bias=False, device=device), # 100x100
                         Conv2d(in_channels=20, out_channels=20, kernel_size=2, stride=2, bias=False, groups=20, device=device), # 25x25

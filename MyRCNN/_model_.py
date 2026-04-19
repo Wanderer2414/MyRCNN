@@ -11,7 +11,7 @@ from . import ColorHead, MaskHead, FeatureHead, Classfication
 from utils import non_max_suppression, mean_average_precision
 import os
 
-dev = "cpu"
+dev = "cuda"
 row = arange(400, dtype=tfloat, device=dev).view(1,1,400,1).expand(1,1,400,400)
 col = arange(400, dtype=tfloat, device=dev).view(1,1,1,400).expand(1,1,400,400)
 center_x = center_y = 200
@@ -44,10 +44,10 @@ def getnear(origin:Tensor, points: Tensor, threshold: float) -> Tensor:
     
     return groups
 class MyRCNN(Module):
-    def __init__(self, channels: int, device: device = device("cpu"))->None:
+    def __init__(self, channels: int, size: int, device: device = device("cpu"))->None:
         super().__init__()
         self.mask = MaskHead.MaskHead(device=device)
-        self.color = ColorHead.ColorHead(in_channels=3, half_out_channels=16, device=device)
+        self.color = ColorHead.ColorHead(in_channels=3, size=size, half_out_channels=16, device=device)
         self.feat = FeatureHead.FeatureHead(half_color_channels=16, mask_channels=1, num_classes=100, device=device)
     def forward(self, x:Tensor) -> tuple[Tensor, Tensor,Tensor, Tensor, Tensor]:
         boundary: Tensor = self.mask(x)
@@ -129,8 +129,8 @@ def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     return loss
 batch_size = 4
 class Model:
-    def __init__(self, train_data:DataLoader, test_data: DataLoader, num_classes, device: device = device("cpu")):
-        self.model = MyRCNN(channels=3, device=device)
+    def __init__(self, train_data:DataLoader, test_data: DataLoader, num_classes, size:int, device: device = device("cpu")):
+        self.model = MyRCNN(channels=3, size=size, device=device)
         self.cls = Classfication.Classification(mask_channels=32, num_classes=num_classes, device=device)
         self.opt = Adam(self.model.parameters(), lr=1e-4)
         self.opt2 = Adam(self.cls.parameters(), lr=1e-4)
@@ -156,49 +156,49 @@ class Model:
         
     def train(self):
         start = time()
-        if (os.path.exists("bbx.pth")):
-            self.model.load_state_dict(load("bbx.pth", map_location=self.device))
-            print("Load model!")
-        else:
-            epoches = 2
-            data_size = len(self.train_data)
-            for epoch in range(epoches):
-                for i, (tens, labels) in enumerate(self.train_data):
-                    boundary, mask, color, score, bbx = self.model(tens.to(self.device))
-                    lss = MyBBLoss(score, labels.to(self.device))
-                    self.opt.zero_grad()
-                    lss.backward()
-                    self.opt.step()
-                    # show_progress_counter(i+1, size, start, f"Loss: {lss}")
-                    # if ((i+1) % (size//5) == 0):
-                    #     print(f"Saved: {(i+1)} / {size//5} progress")
-                    #     save(self.model.state_dict(), "bbx.pth")
-                    show_progress_counter(i+1, data_size, start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
-                    if (i%100 == 0):
-                        save(self.model.state_dict(), "bbx.pth")
-                save(self.model.state_dict(), "bbx.pth")
-        if (os.path.exists("cls.pth")):
-            self.cls.load_state_dict(load("cls.pth", map_location=self.device))
-            print("Load model!")
-        else:
-            start = time()
-            epoches = 2
-            data_size = len(self.train_data)
-            for epoch in range(epoches):
-                for i, (tens, labels) in enumerate(self.train_data):
-                    tens = tens.to(self.device)
-                    labels = labels.to(self.device)
-                    boundary, mask, color, score, bbx = self.model(tens)
-                    boxes = labels[:, 0:5]
-                    cls = self.cls(boundary, score[:, 0:1, :, :], tens, boxes)
-                    lss = ClsLoss(cls, labels)
-                    self.opt2.zero_grad()
-                    lss.backward()
-                    self.opt2.step()
-                    show_progress_counter(i+1, data_size, start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
-                    if (i%100 == 0):
-                        save(self.cls.state_dict(), "cls.pth")
-                save(self.cls.state_dict(), "cls.pth")
+        # if (os.path.exists("bbx.pth")):
+        #     self.model.load_state_dict(load("bbx.pth", map_location=self.device))
+        #     print("Load model!")
+        # else:
+        epoches = 2
+        data_size = len(self.train_data)
+        for epoch in range(epoches):
+            for i, (tens, labels) in enumerate(self.train_data):
+                boundary, mask, color, score, bbx = self.model(tens.to(self.device))
+                lss = MyBBLoss(score, labels.to(self.device))
+                self.opt.zero_grad()
+                lss.backward()
+                self.opt.step()
+                # show_progress_counter(i+1, size, start, f"Loss: {lss}")
+                # if ((i+1) % (size//5) == 0):
+                #     print(f"Saved: {(i+1)} / {size//5} progress")
+                #     save(self.model.state_dict(), "bbx.pth")
+                show_progress_counter(i+1, data_size, start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
+                if (i%100 == 0):
+                    save(self.model.state_dict(), "bbx.pth")
+            save(self.model.state_dict(), "bbx.pth")
+        # if (os.path.exists("cls.pth")):
+        #     self.cls.load_state_dict(load("cls.pth", map_location=self.device))
+        #     print("Load model!")
+        # else:
+        start = time()
+        epoches = 2
+        data_size = len(self.train_data)
+        for epoch in range(epoches):
+            for i, (tens, labels) in enumerate(self.train_data):
+                tens = tens.to(self.device)
+                labels = labels.to(self.device)
+                boundary, mask, color, score, bbx = self.model(tens)
+                boxes = labels[:, 0:5]
+                cls = self.cls(boundary, score[:, 0:1, :, :], tens, boxes)
+                lss = ClsLoss(cls, labels)
+                self.opt2.zero_grad()
+                lss.backward()
+                self.opt2.step()
+                show_progress_counter(i+1, data_size, start, f"Epoch {epoch}/{epoches}; Loss {lss}", epoch, epoches)
+                if (i%100 == 0):
+                    save(self.cls.state_dict(), "cls.pth")
+            save(self.cls.state_dict(), "cls.pth")
     def Evaluate(self):
         ap = 0.0
         start = time()

@@ -1,6 +1,6 @@
 from torch.nn import Module
 from torch.nn.functional import interpolate
-from torch import Tensor
+from torch import Tensor, stack
 from typing import Sequence
 class Interpolate(Module):
     def __init__(self, 
@@ -25,3 +25,10 @@ class Interpolate(Module):
                            self.align_corners, 
                            self.recompute_scale_factor, 
                            self.antialias)
+class SumZip(Module):
+    def __init__(self, split_size: int):
+        super().__init__()
+        self.split_size = split_size
+    def forward(self, x:Tensor):
+        tup = x.split(split_size=self.split_size)
+        return stack(tup, dim=-1).sum(dim=-1)
