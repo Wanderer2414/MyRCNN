@@ -6,11 +6,11 @@ from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, MaxChannelReLU
 class WidthConv(Module):
     def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel = Parameter(tensor([[[[0.1]]]], device=device).repeat(1, 1, 1, kernel_size))
+        self.kernel = Parameter(tensor([[[[0.1]]]]).repeat(1, 1, 1, kernel_size))
         self.stride = stride
         self.padding = padding
         if (bias):
-            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
+            self.bias = Parameter(tensor([0], dtype=tfloat))
         else:
             self.bias = 0
         self.kernel_size = kernel_size
@@ -22,11 +22,11 @@ class WidthConv(Module):
 class HeightConv(Module):
     def __init__(self, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
         super().__init__()
-        self.kernel = Parameter(tensor([[[[0.1]]]], device=device).repeat(1, 1, kernel_size, 1))
+        self.kernel = Parameter(tensor([[[[0.1]]]]).repeat(1, 1, kernel_size, 1))
         self.stride = stride
         self.padding = padding
         if (bias):
-            self.bias = Parameter(tensor([0], dtype=tfloat, device=device))
+            self.bias = Parameter(tensor([0], dtype=tfloat))
         else:
             self.bias = 0
         self.kernel_size = kernel_size
@@ -41,21 +41,21 @@ class ChannelNormalize(Module):
         M = x.detach().max(dim=-1, keepdim=True).values.max(dim=-2, keepdim=True).values.expand(B, C, H, W)
         return x/M*x.detach().max()
 class BoundingBoxRegression(Module):
-    def __init__(self, half_color_channels: int, device: device = device("cpu")):
+    def __init__(self, batch:int, half_color_channels: int, device: device = device("cpu")):
         super().__init__()
         self.bbx = Sequential(
-            Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False, device=device)
+            Conv2d(in_channels=2*half_color_channels, out_channels=half_color_channels*2, kernel_size=1, groups=2*half_color_channels, bias=False)
         )
         self.width = Sequential(
-            WidthConv(kernel_size=11, stride=1, padding=5, device=device),
-            SharedConv(kernel_size=1, stride=1, bias=False, device=device),
+            WidthConv(kernel_size=11, stride=1, padding=5),
+            SharedConv(batch, kernel_size=1, stride=1, bias=False),
         )
         self.height = Sequential(
-            HeightConv(kernel_size=11, stride=1, padding=5, device=device),
-            SharedConv(kernel_size=1, stride=1, bias=False, device=device),
+            HeightConv(kernel_size=11, stride=1, padding=5),
+            SharedConv(batch, kernel_size=1, stride=1, bias=False),
         )
         self.score = Sequential(
-            # BatchNorm2d(num_features=half_color_channels*2, device=device, affine=False),
+            # BatchNorm2d(num_features=half_color_channels*2, affine=False),
             Sigmoid()
         )
         self.max = MaxChannelReLU()
@@ -89,15 +89,18 @@ class BoundingBoxRegression(Module):
        
     
 class FeatureHead(Module):
-    def __init__(self, mask_channels: int, half_color_channels: int, num_classes: int, device: device = device("cpu")):
+    def __init__(self, batch: int, mask_channels: int, half_color_channels: int, num_classes: int):
         super().__init__()
-        self.bbx = BoundingBoxRegression(half_color_channels=half_color_channels, device=device)
-        # self.cls = Classification(boundary_channels=mask_channels, color_channels=half_color_channels*2, num_classes=num_classes, device=device)
+        self.bbx = BoundingBoxRegression(batch, half_color_channels=half_color_channels)
+        # self.cls = Classification(boundary_channels=mask_channels, color_channels=half_color_channels*2, num_classes=num_classes)
         self.num_classes = num_classes
         
     def forward(self, mask: Tensor, color: Tensor) -> tuple[Tensor, Tensor]:
         score, bbx = self.bbx(color) # [B, SWH, H, W]
-        return score, bbx
+        # if (self.training):
+        return score
+        # else:
+        # return score, bbx
         # B, C, H, W = color.shape
         # score = bbx[:,0:1,:,:]
         # y = arange(H, dtype=tfloat, device=mask.device).view(1, 1, H, 1).expand(B, 1, H, W).reshape(B, -1, 1)

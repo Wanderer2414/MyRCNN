@@ -9,7 +9,7 @@ DATASET = "../COCO" if CHOSEN_DATASET == "COCO" else "PASCAL_VOC"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # seed_everything()  # If you want deterministic behavior
 NUM_WORKERS = 4
-BATCH_SIZE = 1
+BATCH_SIZE = 8
 IMAGE_SIZE = 320
 NUM_CLASSES = 80 if CHOSEN_DATASET == "COCO" else 20
 LEARNING_RATE = 0.001
