@@ -249,7 +249,7 @@ class Model(Module):
         else:
             data = YOLODataset(config.TEST_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.test_transforms)
             self.loader = DataLoader(data, batch_size=1, num_workers=1, collate_fn=collect_fn);
-            
+    
         #     self.model.train()
         #     self.cls.train()
         #     ap = 0.0

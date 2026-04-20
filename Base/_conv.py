@@ -27,9 +27,9 @@ class SharedConv(Module):
             return conv2d(x, weight=weight, stride=self.stride, padding=self.padding, groups=self.channels) + self.bias
         return conv2d(x, weight=self.weight, stride=self.stride, padding=self.padding, groups=self.channels) + self.bias
 class EmphaseLocal(Module):
-    def __init__(self, channels:int, kernel_size:int, device: device = device("cpu")) -> None:
+    def __init__(self, channels:int, kernel_size:int) -> None:
         super().__init__()
-        self.conv = SharedConv(channels, kernel_size, padding=kernel_size//2, bias=True, device=device)
+        self.conv = SharedConv(channels, kernel_size, padding=kernel_size//2, bias=True)
     def forward(self, x:Tensor) -> Tensor:
         score = sigmoid(self.conv(x))
         return x*score

@@ -7,7 +7,7 @@ from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tens
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
 from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, MaxChannelReLU, Splitter, Merger, View
 class WidthConv(Module):
-    def __init__(self, channels:int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False, device: device = device("cpu")) -> None:
+    def __init__(self, channels:int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False) -> None:
         super().__init__()
         self.kernel = Parameter(tensor([[[[0.1]]]]).repeat(1, 1, 1, kernel_size))
         self.stride = stride
@@ -29,7 +29,7 @@ class WidthConv(Module):
             result = (conv2d(x, weight=kernel, stride=(1, self.stride), padding=(0, self.padding), groups=self.channels) + self.bias)
         else:
             result = (conv2d(x, weight=self.weight, stride=(1, self.stride), padding=(0, self.padding), groups=self.channels) + self.bias)
-        return result*x.shape[-1]
+        return sigmoid(result)*x.shape[-1]
     
 
 class HeightConv(Module):
@@ -55,7 +55,7 @@ class HeightConv(Module):
             result = (conv2d(x, weight=kernel, stride=(self.stride, 1), padding=(self.padding, 0), groups=x.shape[1]) + self.bias)
         else:
             result= (conv2d(x, weight=self.weight, stride=(self.stride, 1), padding=(self.padding, 0), groups=x.shape[1]) + self.bias)
-        return result*x.shape[-2]
+        return sigmoid(result)*x.shape[-2]
 class ChannelNormalize(Module):
     def __init__(self):
         super().__init__()
@@ -69,7 +69,9 @@ class Distribute(Module):
         self.channels = channels
     def forward(self, x:Tensor) -> Tensor:
         score = x[:, :self.channels, :, :]
-        return cat([(x[:, self.channels*i:self.channels*(i+1), :, :] * score).sum(dim=(-2, -1), keepdim=True) for i in range(x.shape[1]//self.channels)], dim = 1)
+        result = cat([(x[:, self.channels*i:self.channels*(i+1), :, :] * score).sum(dim=(-2, -1), keepdim=True) for i in range(x.shape[1]//self.channels)], dim = 1)
+        result = result[:, self.channels:, :, :]
+        return result
 class PercentWeight(Module):
     def __init__(self, channels: int):
         super().__init__()
@@ -84,26 +86,32 @@ class Bbx(Module):
         wh = x[:, :self.channels, :, :]
         xy = x[:, self.channels:, :, :]
         return cat([xy - wh/2, xy + wh/2], dim=1)
+class Filter(Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, x):
+        x = sigmoid(x)
+        M = amax(x, dim=(-2, -1), keepdim=True) - 0.005
+        return x*(x>M)
 class BoundingBoxRegression(Module):
     def __init__(self, batch:int, half_color_channels: int):
         super().__init__()
         self.channels = half_color_channels*2
         self.bbx = Sequential(
             Splitter(
-                MaxLeakyReLU(threshold=0.01, scale=0),
+                Filter(),
                 Sequential(
-                    SharedConv(channels=self.channels, kernel_size=1, stride=1, padding=0, bias=True),
-                    Sigmoid(),
                     Splitter(
                         Sequential(
-                            WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5),
+                            WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
                             LeakyReLU(inplace=True),
                         ),
                         Sequential(
-                            HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5),
+                            HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
                             LeakyReLU(inplace=True),
                         )
-                    )
+                    ),
+                    SharedConv(channels=self.channels*2, kernel_size=1, stride=1, padding=0, bias=True)
                 )
             ),
             Splitter(
@@ -118,10 +126,13 @@ class BoundingBoxRegression(Module):
         self.distribute = Sequential(
             Merger((self.channels,), 
                     Sequential(
-                        Sigmoid(),
-                        PercentWeight(self.channels)
+                        Splitter(
+                            PercentWeight(self.channels),
+                            None
+                        ),   
                     )
-                   ),
+                    
+                    ),
             Distribute(self.channels),
             Merger((self.channels, self.channels*4),
                    None,
@@ -136,13 +147,13 @@ class BoundingBoxRegression(Module):
         if (self.training):
             return swh[:, self.channels*3:, :, :]
         else:
-            i = arange(B,device=x.device).view(B, 1, 1).expand(B, self.channels, 1)
+            idx = arange(B,device=x.device).view(B, 1, 1).expand(B, self.channels, 1)
             col = arange(W, device=x.device).view(1, 1, 1, W).expand(B, self.channels, H, W)
             row = arange(H, device=x.device).view(1, 1, H, 1).expand(B, self.channels, H, W)
             swhcr = cat([swh[:, :self.channels*3, :, :], col, row], dim=1)
             sx1y1x2y2 = self.distribute(swhcr)
             bbox = stack([sx1y1x2y2[:, self.channels*i: self.channels*(i+1), :, :] for i in range(5)], dim=1).permute(0,2,3,4,1).view(B, -1, 5)
-            result = cat([i, bbox[:, :, 1:], bbox[:, :, :1]], dim=-1)
+            result = cat([idx, bbox[:, :, 1:], bbox[:, :, :1]], dim=-1).view(-1, 6)
             return swh[:, self.channels*3:, :, :], result
        
     

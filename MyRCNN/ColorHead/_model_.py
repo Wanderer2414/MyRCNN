@@ -60,8 +60,9 @@ class ColorHead(Module):
             LeakyReLU(inplace=True)
         )
         self.ft = Sequential(
-            BatchNorm2d(half_out_channels*2),
-            EmphaseLocal(half_out_channels*2, kernel_size=11)
+            BatchNorm2d(half_out_channels*2, affine=True),
+            SharedConv(channels=half_out_channels*2, kernel_size=1),
+            EmphaseLocal(half_out_channels*2, kernel_size=11),
         )
         self.max = Sequential(
             BatchNorm2d(half_out_channels*2),
@@ -84,7 +85,7 @@ class ColorHead(Module):
             zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
             score = score + self.interpolate(zoomout)
         score = self.ft(score)
-        # score = self.ft(score)
-        # score = self.ft(score)
+        score = self.ft(score)
+        score = self.ft(score)
         # score = self.max(score)
         return score
