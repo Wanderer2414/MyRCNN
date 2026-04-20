@@ -41,11 +41,15 @@ class MaxLeakyReLU(Module):
     def forward(self, x:Tensor) -> Tensor:
         B, C, H, W = x.shape
         score = sigmoid(x)
-        M = amax(score, dim=(-2, -1), keepdim=True) - self.threshold
-        M = M.expand(B, C, H, W)
-        alt = x*self.scale
-        result =  where(score>=M, x, alt)
-        return result
+        return where(score >= 0.8, x, x*self.scale)
+        # M = amax(score, dim=(-2, -1), keepdim=True) - self.threshold
+        # M = M.expand(B, C, H, W)
+        # alt = x*self.scale
+        # if (self.inverse):
+        #     result =  where(score>=M, x, alt)
+        # else:
+        #     result = where(score>=M, alt, x)
+        # return result
         
 class MinLeakyReLU(Module):
     def __init__(self, threshold: float = 0.1, scale: float = 0.01):
@@ -69,5 +73,6 @@ class MaxChannelReLU(Module):
         if (self.training):
             return x.mean(dim=1, keepdim=True)*self.scale + (1-self.scale)*x.max(dim=1, keepdim=True).values
         else:
-            return x.max(dim=1, keepdim=True).values
+            s = sigmoid(x)
+            return (s*x).mean(dim=1, keepdim=True)
     

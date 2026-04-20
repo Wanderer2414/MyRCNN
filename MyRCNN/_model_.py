@@ -113,8 +113,7 @@ def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
     
     indices = (sigmoid(score) > 0.8) * score
     N = score.shape[0]
-    count = indices.view(N, -1).sum(dim=-1, keepdim=True).view(N, 1, 1, 1)
-    indices = indices/(count+eps)
+    indices = indices/(indices.sum(dim=(-2, -1), keepdim=True)+eps)
     x = arange(W, dtype=tfloat, device=score.device).view(1, 1, 1, W).expand(1, 1, H, W)
     y = arange(H, dtype=tfloat, device=score.device).view(1, 1, H, 1).expand(1, 1, H, W)
     

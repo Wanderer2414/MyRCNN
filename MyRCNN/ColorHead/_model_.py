@@ -43,7 +43,14 @@ class ModePool2d(Module):
         W_out = (W - self.kernel_size) // self.stride + 1
         return median.view(B, C, H_out, W_out)
         
-        
+class Filter(Module):
+    def __init__(self, min: float, max: float, scale: float = 0.1):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.scale = scale
+    def forward(self, x: Tensor):
+        return (((x>=self.min) & (x<=self.max)) + self.scale)*x
 class ColorHead(Module):
     def __init__(self, batch: int, in_channels: int, half_out_channels: int) -> None:
         super().__init__()
@@ -51,27 +58,27 @@ class ColorHead(Module):
             ColorDownsample(16),
             ModePool2d(kernel_size=11, stride=1, padding=1),
             Conv2d(in_channels=in_channels, out_channels=half_out_channels*2, kernel_size=1),
-            MaxLeakyReLU(threshold=0.1, scale=0.01),
-            Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels*2, kernel_size=1, groups=half_out_channels), #  groups
-            MinLeakyReLU(threshold=0.1, scale=0.01)
+            # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
+            # MaxLeakyReLU(threshold=0.01, scale=0.01),
+            # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
+            # MaxLeakyReLU(threshold=0.01, scale=0.01, inverse=True),
+            BatchNorm2d(num_features=half_out_channels*2, affine=False),
+            Filter(-0.1, 0.1, scale=0.01),
+            BatchNorm2d(num_features=half_out_channels*2, affine=False),
+            SharedConv(channels=half_out_channels*2, kernel_size=1)
         )
         self.downgrade = Sequential(
-            SharedConv(half_out_channels*2, kernel_size=3, stride=3, padding=1),
-            LeakyReLU(inplace=True)
+            SharedConv(half_out_channels*2, kernel_size=3, stride=3, padding=1)
         )
         self.ft = Sequential(
-            BatchNorm2d(half_out_channels*2, affine=True),
+            BatchNorm2d(half_out_channels*2, affine=False),
             SharedConv(channels=half_out_channels*2, kernel_size=1),
+            AvgPool2d(kernel_size=3, stride=1, padding=1),
             EmphaseLocal(half_out_channels*2, kernel_size=11),
-        )
-        self.max = Sequential(
-            BatchNorm2d(half_out_channels*2),
-            MaxLeakyReLU(scale=0.7, threshold=0.1),
         )
         self.interpolate = Sequential(
             SharedConv(half_out_channels*2, kernel_size=5, padding=2),
-            BatchNorm2d(half_out_channels*2),
-            LeakyReLU(inplace=True)
+            BatchNorm2d(half_out_channels*2)
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)]).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
@@ -82,10 +89,9 @@ class ColorHead(Module):
         n = floor(log(min(downgrade.shape[2], downgrade.shape[3]), 3))
         for i in range(n):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
-            zoomout = interpolate(downgrade, size=(H, W), mode="bilinear")
-            score = score + self.interpolate(zoomout)
+            zoomout = interpolate(self.interpolate(downgrade), size=(H, W), mode="bilinear")
+            score = score + zoomout
         score = self.ft(score)
         score = self.ft(score)
-        score = self.ft(score)
-        # score = self.max(score)
+        # score = self.ft(score)
         return score

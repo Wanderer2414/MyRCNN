@@ -102,14 +102,8 @@ class BoundingBoxRegression(Module):
                 Filter(),
                 Sequential(
                     Splitter(
-                        Sequential(
-                            WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
-                            LeakyReLU(inplace=True),
-                        ),
-                        Sequential(
-                            HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
-                            LeakyReLU(inplace=True),
-                        )
+                        WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
+                        HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
                     ),
                     SharedConv(channels=self.channels*2, kernel_size=1, stride=1, padding=0, bias=True)
                 )
