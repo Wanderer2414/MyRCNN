@@ -249,22 +249,22 @@ class Model(Module):
             data = YOLODataset(config.TEST_DIR, config.IMG_DIR, config.LABEL_DIR, config.ANCHORS, transform=config.test_transforms)
             self.loader = DataLoader(data, batch_size=1, num_workers=4, collate_fn=collect_fn);
     
-            self.model.eval()
-            self.cls.eval()
-            ap = 0.0
-            start = time()
-            data_size = len(self.loader)
-            for i,(tens, labels) in enumerate(self.loader):
-                data = tens.to(self.device)
-                labels = labels.to(self.device)
-                pred = self.inference(config.NUM_CLASSES, data)
-                former = labels[:, :1]
-                latter = labels[:, 1:-1]
-                cls = labels[:, -1:]
-                labels = cat([former, cls, ones(labels.shape[0], 1, device=self.device), latter], dim=-1)
-                ap += mean_average_precision(pred.tolist(), labels.tolist(), num_classes=config.NUM_CLASSES)
-                show_progress_counter(i+1, data_size, start, f"mAP: {ap/(i+1)}", 0, 1)
-            print(f"mAP: {ap/data_size}")
+            # self.model.eval()
+            # self.cls.eval()
+            # ap = 0.0
+            # start = time()
+            # data_size = len(self.loader)
+            # for i,(tens, labels) in enumerate(self.loader):
+            #     data = tens.to(self.device)
+            #     labels = labels.to(self.device)
+            #     pred = self.inference(config.NUM_CLASSES, data)
+            #     former = labels[:, :1]
+            #     latter = labels[:, 1:-1]
+            #     cls = labels[:, -1:]
+            #     labels = cat([former, cls, ones(labels.shape[0], 1, device=self.device), latter], dim=-1)
+            #     ap += mean_average_precision(pred.tolist(), labels.tolist(), num_classes=config.NUM_CLASSES)
+            #     show_progress_counter(i+1, data_size, start, f"mAP: {ap/(i+1)}", 0, 1)
+            # print(f"mAP: {ap/data_size}")
         return self
     def forward(self, x:Tensor) -> Tensor:
         boundary, score, bbx = self.model(x)
