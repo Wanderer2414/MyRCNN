@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, LeakyReLU,Sequential, BatchNorm2d, MaxPool2d, AvgPool2d
 from torch import device, Tensor, cat
 from torchvision.ops import roi_align
-from Base import Merger, Repeat
+from Base import Merger, Expand
 
 class Classification(Module):
     # 300 x 300 input
@@ -18,7 +18,7 @@ class Classification(Module):
                     ),
                    Sequential(
                         AvgPool2d(kernel_size=2, stride=2),
-                        Repeat(2)
+                        Expand(2)
                     )),
             Merger((40, 3), 
                    Sequential(
@@ -30,7 +30,7 @@ class Classification(Module):
                     ),
                    Sequential(
                         AvgPool2d(kernel_size=2, stride=2),
-                        Repeat(2)
+                        Expand(2)
                     )),
             Merger((40, 3), 
                    Sequential(
@@ -42,7 +42,7 @@ class Classification(Module):
                     ),
                    Sequential(
                         AvgPool2d(kernel_size=2, stride=2),
-                        Repeat(2)
+                        Expand(2)
                     )),
             Merger((40, 3), 
                    Sequential(

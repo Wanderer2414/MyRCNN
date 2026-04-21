@@ -2,8 +2,8 @@ from typing import Any
 
 from typing_extensions import Self
 
-from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d, Sigmoid
-from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum, split, cdist, int64, floor, sort, tensor_split, amax, ones, amin
+from torch.nn import Module, Conv2d, Sequential, ReLU,MaxPool2d, LeakyReLU, AvgPool2d, Parameter, BatchNorm2d, Sigmoid, Softmax
+from torch import Tensor, where, zeros_like, ones_like, device, cat, zeros, tensor, conv2d, topk, float as tfloat, arange, stack, bool as tbool, meshgrid, minimum, maximum, split, cdist, int64, floor, sort, tensor_split, amax, ones, amin, softmax
 from torch.nn.functional import max_pool2d, avg_pool2d, interpolate, sigmoid, pad, unfold, relu
 from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, MaxChannelReLU, Splitter, Merger, View
 class WidthConv(Module):
@@ -95,28 +95,31 @@ class Filter(Module):
         M = amax(x, dim=(-2, -1), keepdim=True) - 0.005
         return x*((x>M) + self.scale)
 class BoundingBoxRegression(Module):
-    def __init__(self, batch:int, half_color_channels: int):
+    def __init__(self, batch:int, half_color_channels: int, num_class: int):
         super().__init__()
         self.channels = half_color_channels*2
-        self.bbx = Sequential(
-            Splitter(
-                Filter(),
+        self.bbx = Merger((half_color_channels*2, 1),
                 Sequential(
                     Splitter(
-                        WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
-                        HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
+                        Filter(),
+                        Sequential(
+                            Splitter(
+                                WidthConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
+                                HeightConv(half_color_channels*2, kernel_size=11, stride=1, padding=5, bias=True),
+                            ),
+                            SharedConv(channels=self.channels*2, kernel_size=1, stride=1, padding=0, bias=True)
+                        )
                     ),
-                    SharedConv(channels=self.channels*2, kernel_size=1, stride=1, padding=0, bias=True)
-                )
-            ),
-            Splitter(
-                None,
-                Merger((self.channels, self.channels, self.channels),
-                       MaxChannelReLU(),
-                       MaxChannelReLU(),
-                       MaxChannelReLU()
-                )
-            )
+                    Splitter(
+                        None,
+                        Merger((self.channels, self.channels, self.channels),
+                            MaxChannelReLU(),
+                            MaxChannelReLU(),
+                            MaxChannelReLU()
+                        )
+                    )
+                ),
+                Conv2d(in_channels=1, out_channels=num_class, kernel_size=1),
         )
         self.distribute = Sequential(
             Merger((self.channels,), 
@@ -126,7 +129,6 @@ class BoundingBoxRegression(Module):
                             None
                         ),   
                     )
-                    
                     ),
             Distribute(self.channels),
             Merger((self.channels, self.channels*4),
@@ -146,10 +148,17 @@ class BoundingBoxRegression(Module):
             col = arange(W, device=x.device).view(1, 1, 1, W).expand(B, self.channels, H, W)
             row = arange(H, device=x.device).view(1, 1, H, 1).expand(B, self.channels, H, W)
             swhcr = cat([swh[:, :self.channels*3, :, :], col, row], dim=1)
-            sx1y1x2y2 = self.distribute(swhcr)
-            bbox = stack([sx1y1x2y2[:, self.channels*i: self.channels*(i+1), :, :] for i in range(5)], dim=1).permute(0,2,3,4,1).view(B, -1, 5)
-            result = cat([idx, bbox[:, :, 1:], bbox[:, :, :1]], dim=-1).view(-1, 6)
-            return swh[:, self.channels*3:, :, :], result
+            sx1y1x2y2: Tensor = self.distribute(swhcr)
+            cls = swh[:, self.channels*3+3:, :, :]
+            cls = softmax(cls, dim=1).max(dim=1, keepdim=True).indices.view(B, -1, 1)
+            score = swh[:, :1, :, :].view(B, -1, 1)
+            score = cat([score, cls], dim=-1).max(dim=-1, keepdim=True).values
+            
+            bbox = sx1y1x2y2.split(self.channels, dim=1)
+            bbox = stack(bbox, dim=1).permute(0,2,3,4,1)
+            bbox = bbox.view(B, -1, 5)
+            result = cat([idx, score[:, :, 1:], bbox[:, :, :1]*score[:, :, :1], bbox[:, :, 1:]], dim=-1).view(-1, 6)
+            return result
        
     
 class FeatureHead(Module):

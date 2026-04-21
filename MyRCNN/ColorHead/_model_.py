@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, ReLU, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter, Sequential
 from torch import Tensor, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d, argmax,bincount, int64
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
-from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, View, MinLeakyReLU, Enhance
+from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, View, MinLeakyReLU, Enhance, Merger, Mul, SumChannels, Expand
 from math import log, floor
 class ColorDownsample(Module):
     def __init__(self, down: int):
@@ -58,17 +58,42 @@ class ColorHead(Module):
             ColorDownsample(16),
             ModePool2d(kernel_size=11, stride=1, padding=1),
             Conv2d(in_channels=in_channels, out_channels=half_out_channels*2, kernel_size=1),
-            # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
-            # MaxLeakyReLU(threshold=0.01, scale=0.01),
-            # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
-            # MaxLeakyReLU(threshold=0.01, scale=0.01, inverse=True),
             BatchNorm2d(num_features=half_out_channels*2, affine=False),
             Filter(-0.05, 0.05, scale=0.01),
             BatchNorm2d(num_features=half_out_channels*2, affine=False)
         )
+        self.prepare_boudnary = Sequential(
+            Conv2d(in_channels=1, out_channels=half_out_channels*2, kernel_size=1),
+            LeakyReLU(),
+            Conv2d(in_channels=half_out_channels*2, out_channels=1, kernel_size=1)
+        )
         self.downgrade = Sequential(
-            SharedConv(half_out_channels*2, kernel_size=3, stride=3, padding=1),
-            Enhance(),
+            Merger((half_out_channels*2, 1),
+                    Sequential(
+                        SharedConv(half_out_channels*2, kernel_size=3, stride=3, padding=1),
+                        Enhance(),
+                        Expand(2)
+                    ),
+                    Sequential(
+                        Conv2d(in_channels=1, out_channels=1, kernel_size=3, padding=1, stride=3),
+                        Expand(half_out_channels*2)
+                    )
+                   ),
+            Merger((half_out_channels*2, half_out_channels*4),
+                   None,
+                   Sequential(
+                       Mul(half_out_channels*2),
+                       Splitter(
+                           None,
+                           Sequential(
+                               Conv2d(in_channels=half_out_channels*2, out_channels=half_out_channels*2, kernel_size=3, stride=1, padding=1),
+                               Sigmoid()
+                           )
+                           ),
+                       Mul(half_out_channels*2),
+                       SumChannels(1)
+                   )
+                   )
         )
         self.ft = Sequential(
             # BatchNorm2d(half_out_channels*2, affine=False),
@@ -82,13 +107,18 @@ class ColorHead(Module):
             BatchNorm2d(num_features=half_out_channels*2, affine=False)
         )
         self.interpolate = Sequential(
-            SharedConv(half_out_channels*2, kernel_size=5, padding=2)
+            Merger((half_out_channels*2, 1),
+                    SharedConv(channels=half_out_channels*2, kernel_size=1, bias=True),
+                    SharedConv(channels=half_out_channels*2, kernel_size=1, bias=True),
+                   ),
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)]).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
-    def forward(self, x:Tensor):
+    def forward(self, boundary: Tensor, x:Tensor):
         B, C, H, W = x.shape
         downgrade: Tensor = self.prepare(x)
+        boundary = self.prepare_boudnary(boundary)
+        downgrade = cat([downgrade, boundary], dim=1)
         score: Tensor = zeros(B, self.half_out_channels*2, H, W, device=x.device)
         n = floor(log(min(downgrade.shape[2], downgrade.shape[3]), 3))
         for i in range(n):

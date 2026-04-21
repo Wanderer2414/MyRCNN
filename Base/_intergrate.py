@@ -1,7 +1,7 @@
 from typing_extensions import Self
 
 from torch.nn import Module, ModuleList, Sequential
-from torch import Tensor, stack, zeros, cat
+from torch import Tensor, stack, zeros, cat, split
 from typing import Callable, Iterator
 
 class Splitter(Module):
@@ -62,12 +62,12 @@ class Merger(Module):
         if (previous < x.shape[1]):
             output.append(x[:, previous:, :, :])
         return cat(output, dim=1)
-class Repeat(Module):
+class Expand(Module):
     def __init__(self, num: int):
         super().__init__()
         self.num = num
     def forward(self, x:Tensor) -> Tensor:
-        return x.repeat(1, self.num, 1, 1)
+        return x.expand(x.shape[0], self.num*x.shape[1], x.shape[2], x.shape[3])
 class View(Module):
     def __init__(self, channels: int, dim: int = 0):
         super().__init__()
@@ -91,3 +91,19 @@ class BranchTrainning(Module):
             return self.module(x)
         else:
             return x
+class Mul(Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        self.channels = channels
+    def forward(self, x:Tensor) ->Tensor:
+        mods = split(x, self.channels)
+        mods = stack(mods, dim=1).prod(dim=2)
+        return mods
+class SumChannels(Module):
+    def __init__(self, out_channel: int):
+        super().__init__()
+        self.channels = out_channel
+    def forward(self, x:Tensor) -> Tensor:
+        mods = x.split(self.channels, dim=1)
+        mods = stack(mods, dim=1).sum(dim=2)
+        return mods

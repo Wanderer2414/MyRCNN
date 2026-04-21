@@ -70,13 +70,9 @@ class MyRCNN(Module):
         return self
     
     def forward(self, x:Tensor):
-        color = self.color(x)
-        if (self.training):
-            return self.feat(color)
-        else: 
-            boundary: Tensor = self.mask(x)
-            score, bbx = self.feat(color)
-            return boundary, score, bbx
+        boundary: Tensor = self.mask(x)
+        color = self.color(boundary, x)
+        return self.feat(color)
 def MyBBLoss(scores: Tensor, labels: Tensor) -> Tensor:
     C_gt = 0
     score_box = roi_align(scores[:, 0:1, :, :], labels[:, 0:5], (400, 400))  # type: ignore[assignment]
@@ -96,7 +92,6 @@ def MyBBLoss(scores: Tensor, labels: Tensor) -> Tensor:
     wh = cat([w,h],dim=1)
     FIoULoss = FIoU(score_box, wh)
     return score + FIoULoss
-    return score
 def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
     """Summary
 
@@ -132,22 +127,6 @@ def FIoU(score: Tensor, wh: Tensor, eps:float = 1e-7) -> Tensor:
     loss = distance_box_iou_loss(boxes,target, reduction="mean")
     return loss
 
-def Overlapse(boxes: Tensor, boxes_gt: Tensor) -> Tensor:
-    """Summary
-
-    Args:
-        boxes (Tensor): [N, 4] -> [x1,y1,x2,y2]
-        boxes_gt (Tensor): [N, 4] -> [x1, y1, x2, y2]
-
-    Returns:
-        Tensor: _description_
-    """
-    x1 = max(boxes[:, :, :, 0:1], boxes_gt[:, :, :, 0:1])
-    x2 = min(boxes[:, :, :, 2:3], boxes_gt[:, :, :, 2:3])
-    y1 = max(boxes[:, :, :, 1:2], boxes_gt[:, :, :, 1:2])
-    y2 = min(boxes[:, :, :, 3:4], boxes_gt[:, :, :, 3:4])
-    return ((x2 - x1)*(y2-y1)).abs()
-    
 def ClsLoss(cls: Tensor, label: Tensor) -> Tensor:
     """_summary_
     Args:
