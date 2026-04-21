@@ -33,6 +33,11 @@ class EmphaseLocal(Module):
     def forward(self, x:Tensor) -> Tensor:
         score = sigmoid(self.conv(x))
         return x*score
+class Enhance(Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, x:Tensor) -> Tensor:
+        return sigmoid(x)*x
 class MaxLeakyReLU(Module):
     def __init__(self, threshold: float = 0.1, scale: float = 0.01):
         super().__init__()

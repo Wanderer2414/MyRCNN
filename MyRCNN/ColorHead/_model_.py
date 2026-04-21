@@ -1,7 +1,7 @@
 from torch.nn import Module, Conv2d, ReLU, AvgPool2d, MaxPool2d, Sigmoid, Linear, LeakyReLU, BatchNorm2d, Parameter, Sequential
 from torch import Tensor, cat, where, stack, arange, float as tfloat, zeros, tensor, ones, conv2d, argmax,bincount, int64
 from torch.nn.functional import interpolate, avg_pool2d, max_pool2d, sigmoid, conv2d, relu, pad, unfold
-from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, View, MinLeakyReLU
+from Base import MaxLeakyReLU, SharedConv, EmphaseLocal, Interpolate, Splitter, View, MinLeakyReLU, Enhance
 from math import log, floor
 class ColorDownsample(Module):
     def __init__(self, down: int):
@@ -63,22 +63,26 @@ class ColorHead(Module):
             # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
             # MaxLeakyReLU(threshold=0.01, scale=0.01, inverse=True),
             BatchNorm2d(num_features=half_out_channels*2, affine=False),
-            Filter(-0.1, 0.1, scale=0.01),
-            BatchNorm2d(num_features=half_out_channels*2, affine=False),
-            SharedConv(channels=half_out_channels*2, kernel_size=1)
+            Filter(-0.05, 0.05, scale=0.01),
+            BatchNorm2d(num_features=half_out_channels*2, affine=False)
         )
         self.downgrade = Sequential(
-            SharedConv(half_out_channels*2, kernel_size=3, stride=3, padding=1)
+            SharedConv(half_out_channels*2, kernel_size=3, stride=3, padding=1),
+            Enhance(),
         )
         self.ft = Sequential(
-            BatchNorm2d(half_out_channels*2, affine=False),
-            SharedConv(channels=half_out_channels*2, kernel_size=1),
+            # BatchNorm2d(half_out_channels*2, affine=False),
+            # SharedConv(channels=half_out_channels*2, kernel_size=1),
             AvgPool2d(kernel_size=3, stride=1, padding=1),
-            EmphaseLocal(half_out_channels*2, kernel_size=11),
+            Enhance(),
+            AvgPool2d(kernel_size=3, stride=1, padding=1),
+            Enhance(),
+            AvgPool2d(kernel_size=3, stride=1, padding=1),
+            Enhance(),
+            BatchNorm2d(num_features=half_out_channels*2, affine=False)
         )
         self.interpolate = Sequential(
-            SharedConv(half_out_channels*2, kernel_size=5, padding=2),
-            BatchNorm2d(half_out_channels*2)
+            SharedConv(half_out_channels*2, kernel_size=5, padding=2)
         )
         # self.weight = tensor([pow(256, in_channels-i) for i in range(in_channels)]).view(1, in_channels, 1, 1)
         self.half_out_channels = half_out_channels
@@ -91,7 +95,6 @@ class ColorHead(Module):
             downgrade = self.downgrade(downgrade) # + avg_pool2d(downgrade, kernel_size=3, stride=3, padding=1)
             zoomout = interpolate(self.interpolate(downgrade), size=(H, W), mode="bilinear")
             score = score + zoomout
-        score = self.ft(score)
         score = self.ft(score)
         # score = self.ft(score)
         return score

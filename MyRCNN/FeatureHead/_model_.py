@@ -87,12 +87,13 @@ class Bbx(Module):
         xy = x[:, self.channels:, :, :]
         return cat([xy - wh/2, xy + wh/2], dim=1)
 class Filter(Module):
-    def __init__(self):
+    def __init__(self, scale:float = 0.01):
         super().__init__()
+        self.scale = scale
     def forward(self, x):
         x = sigmoid(x)
         M = amax(x, dim=(-2, -1), keepdim=True) - 0.005
-        return x*(x>M)
+        return x*((x>M) + self.scale)
 class BoundingBoxRegression(Module):
     def __init__(self, batch:int, half_color_channels: int):
         super().__init__()
