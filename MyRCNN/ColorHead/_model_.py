@@ -50,7 +50,9 @@ class Filter(Module):
         self.max = max
         self.scale = scale
     def forward(self, x: Tensor):
-        return (((x>=self.min) & (x<=self.max)) + self.scale)*x
+        if (self.training):
+            return (((x>=self.min) & (x<=self.max)) + self.scale)*x
+        return ((x>=self.min) & (x<=self.max)) * x
 class ColorHead(Module):
     def __init__(self, batch: int, in_channels: int, half_out_channels: int) -> None:
         super().__init__()
@@ -58,10 +60,6 @@ class ColorHead(Module):
             ColorDownsample(16),
             ModePool2d(kernel_size=11, stride=1, padding=1),
             Conv2d(in_channels=in_channels, out_channels=half_out_channels*2, kernel_size=1),
-            # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
-            # MaxLeakyReLU(threshold=0.01, scale=0.01),
-            # SharedConv(channels=half_out_channels*2, kernel_size=1, stride=1, bias=True),
-            # MaxLeakyReLU(threshold=0.01, scale=0.01, inverse=True),
             BatchNorm2d(num_features=half_out_channels*2, affine=False),
             Filter(-0.05, 0.05, scale=0.01),
             BatchNorm2d(num_features=half_out_channels*2, affine=False)
@@ -71,8 +69,6 @@ class ColorHead(Module):
             Enhance(),
         )
         self.ft = Sequential(
-            # BatchNorm2d(half_out_channels*2, affine=False),
-            # SharedConv(channels=half_out_channels*2, kernel_size=1),
             AvgPool2d(kernel_size=3, stride=1, padding=1),
             Enhance(),
             AvgPool2d(kernel_size=3, stride=1, padding=1),
